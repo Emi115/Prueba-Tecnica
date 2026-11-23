@@ -31,7 +31,18 @@ export class ConfigError extends Error {
   }
 }
 
+/** Gemini saturado (5xx) o sin respuesta a tiempo: es temporal, el motor reintenta con espera. */
+export class GeminiBusyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GeminiBusyError";
+  }
+}
+
 let client: GoogleGenAI | null = null;
+
+/** Tiempo máximo por intento de llamada a Gemini. */
+const GEMINI_TIMEOUT_MS = 70_000;
 
 /** Tolera errores típicos al pegar la clave: espacios, saltos de línea y comillas. */
 const apiKey = () => process.env.GEMINI_API_KEY?.trim().replace(/^["']|["']$/g, "");
@@ -63,8 +74,11 @@ export async function structured<S extends z.ZodType>(opts: {
     apiKey: apiKey(),
     // El SDK reintenta 429 por defecto: lo limitamos a 5xx/timeouts (2 reintentos).
     // Los 429 se convierten en RateLimitError y el motor decide (con tope) cuándo reintentar.
+    // Presupuesto de tiempo: 3 intentos × 70 s + esperas ≈ 220 s, por debajo del lock (280 s)
+    // y del maxDuration de Vercel (300 s). Así un Gemini lento falla con mensaje, no deja la
+    // función cortada a medias.
     httpOptions: {
-      timeout: 240_000,
+      timeout: GEMINI_TIMEOUT_MS,
       retryOptions: { attempts: 3, initialDelay: 2, maxDelay: 8, httpStatusCodes: [408, 500, 502, 503, 504] },
     },
   });
@@ -91,7 +105,10 @@ export async function structured<S extends z.ZodType>(opts: {
     }
     if (err instanceof ApiError && err.status >= 500) {
       // El SDK ya reintentó; el motor volverá a intentarlo en el siguiente paso.
-      throw new Error(`Gemini está saturado o no disponible ahora mismo (HTTP ${err.status}). Es temporal`);
+      throw new GeminiBusyError(`Gemini está saturado o no disponible ahora mismo (HTTP ${err.status}). Es temporal.`);
+    }
+    if (!(err instanceof ApiError) && /abort|timed?\s?out|timeout/i.test(`${(err as Error)?.name} ${(err as Error)?.message}`)) {
+      throw new GeminiBusyError(`Gemini no ha respondido en ${GEMINI_TIMEOUT_MS / 1000} s (lento o saturado). Es temporal.`);
     }
     throw err;
   }

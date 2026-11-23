@@ -6,9 +6,11 @@ import { contactDemoChecks, mergeChecks, runChecks } from "./checks";
 import { planTasks } from "./agents/orchestrator";
 import { develop } from "./agents/developer";
 import { test } from "./agents/tester";
-import { ConfigError, RateLimitError, type LlmUsage } from "./llm";
+import { ConfigError, GeminiBusyError, RateLimitError, type LlmUsage } from "./llm";
 import {
+  BUSY_WAIT_MS,
   MAX_ATTEMPTS,
+  MAX_BUSY_RETRIES,
   MAX_RATE_LIMIT_RETRIES,
   RATE_LIMIT_WAIT_MS,
   type Attempt,
@@ -137,33 +139,50 @@ export async function step(runId: string): Promise<StepResult> {
     if (locked.status === "planning") await stepPlan(locked);
     else await stepWork(locked);
   } catch (err) {
-    if (err instanceof RateLimitError) {
-      // 429: no cuenta como error de código; reintentos limitados y espera entre ellos.
+    // 429 (cuota) y 5xx/timeouts (Gemini saturado) son temporales: no cuentan como error de código.
+    // Reintentos limitados, con espera entre ellos, y mensaje claro en el panel.
+    const transient =
+      err instanceof RateLimitError
+        ? {
+            type: "rate_limit",
+            max: MAX_RATE_LIMIT_RETRIES,
+            wait: RATE_LIMIT_WAIT_MS,
+            why: "Gemini devolvió 429 (cuota agotada) varias veces seguidas.",
+            detail: "Detenido: cuota de Gemini agotada (429)",
+          }
+        : err instanceof GeminiBusyError
+          ? {
+              type: "busy",
+              max: MAX_BUSY_RETRIES,
+              wait: BUSY_WAIT_MS,
+              why: "Gemini estuvo saturado (503) o sin responder varias veces seguidas. Prueba más tarde.",
+              detail: "Detenido: Gemini saturado",
+            }
+          : null;
+    if (transient) {
+      const message = (err as Error).message;
       const recent = await q<{ type: string }>(
         `SELECT type FROM events WHERE run_id = $1 AND type <> 'thinking' ORDER BY id DESC LIMIT $2`,
-        [runId, MAX_RATE_LIMIT_RETRIES - 1],
+        [runId, transient.max - 1],
       );
-      const streak = recent.findIndex((e) => e.type !== "rate_limit");
+      const streak = recent.findIndex((e) => e.type !== transient.type);
       const previous = streak === -1 ? recent.length : streak;
-      const giveUp = previous + 1 >= MAX_RATE_LIMIT_RETRIES;
+      const giveUp = previous + 1 >= transient.max;
       await log(
         runId,
         null,
         "system",
-        "rate_limit",
+        transient.type,
         giveUp
-          ? `${err.message} (${MAX_RATE_LIMIT_RETRIES}/${MAX_RATE_LIMIT_RETRIES} reintentos agotados: ejecución detenida).`
-          : `${err.message} Reintento ${previous + 1}/${MAX_RATE_LIMIT_RETRIES} en ${RATE_LIMIT_WAIT_MS / 1000} s.`,
+          ? `${message} (${transient.max}/${transient.max} reintentos agotados: ejecución detenida).`
+          : `${message} Reintento ${previous + 1}/${transient.max} en ${transient.wait / 1000} s.`,
       );
       if (giveUp) {
-        await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [
-          runId,
-          "Gemini devolvió 429 (cuota agotada) varias veces seguidas.",
-        ]);
-        await setAgents(runId, { orchestrator: { state: "error", detail: "Detenido: cuota de Gemini agotada (429)" } });
+        await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [runId, transient.why]);
+        await setAgents(runId, { orchestrator: { state: "error", detail: transient.detail } });
       }
       await q(`UPDATE runs SET locked_until = NULL, updated_at = now() WHERE id = $1`, [runId]);
-      return giveUp ? { status: "finished" } : { status: "rate_limited", retryAfterMs: RATE_LIMIT_WAIT_MS };
+      return giveUp ? { status: "finished" } : { status: "rate_limited", retryAfterMs: transient.wait };
     }
     if (err instanceof ConfigError) {
       // Clave inválida: no tiene sentido reintentar.

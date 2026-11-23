@@ -91,5 +91,9 @@ export interface SiteFile {
 export const MAX_ATTEMPTS = 3;
 /** 429 seguidos de Gemini antes de detener la ejecución. */
 export const MAX_RATE_LIMIT_RETRIES = 3;
+/** Reintentos seguidos si Gemini está saturado (5xx) o no responde, antes de detener la ejecución. */
+export const MAX_BUSY_RETRIES = 5;
+/** Espera entre reintentos cuando Gemini está saturado. */
+export const BUSY_WAIT_MS = 15_000;
 /** Espera sugerida al panel tras un 429. */
 export const RATE_LIMIT_WAIT_MS = 30_000;
