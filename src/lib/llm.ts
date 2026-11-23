@@ -5,14 +5,16 @@ import { z } from "zod";
 /* ------------------------------------------------------------------
  * Cadena de modelos con respaldo
  *   1. Gemini principal  (GEMINI_MODEL, por defecto gemini-3.1-flash-lite)
- *   2. Gemini de respaldo (GEMINI_FALLBACK_MODEL, por defecto gemini-2.5-flash-lite; "none" lo desactiva)
+ *   2. Gemini de respaldo (GEMINI_FALLBACK_MODEL, por defecto gemini-flash-latest; "none" lo desactiva)
  *   3. Groq               (solo si hay GROQ_API_KEY; GROQ_MODEL, por defecto openai/gpt-oss-120b)
  * Solo se pasa al siguiente si el fallo es temporal (saturado, sin respuesta, 429 o modelo no
  * disponible). Una clave inválida detiene la ejecución: reintentar con otro modelo la ocultaría.
  * ------------------------------------------------------------------ */
 
 export const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
-const GEMINI_FALLBACK = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-2.5-flash-lite";
+// Alias oficial que Google mantiene apuntando al Flash estable más reciente: no caduca como
+// los modelos con versión (gemini-2.5-flash-lite ya devuelve 404) y tiene capacidad aparte de Flash-Lite.
+const GEMINI_FALLBACK = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-latest";
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 

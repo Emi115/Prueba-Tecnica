@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentEvent, AgentId, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
+import type { AgentEvent, AgentId, ModelInfo, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
 import { MAX_ATTEMPTS } from "@/lib/types";
 import { BASE_SITE } from "@/lib/base-site";
 import { AGENT_STATE, AGENTS, isActive, RUN_STATUS, TASK_STATUS, time } from "./ui";
@@ -150,6 +150,7 @@ export function RunDashboard({ id }: { id: string }) {
         {(Object.keys(AGENTS) as AgentId[]).map((a) => {
           const st = run.agents[a];
           const last = [...events].reverse().find((e) => e.agent === a);
+          const lastModel = modelOf([...events].reverse().find((e) => e.agent === a && modelOf(e)));
           const working = st.state === "working" && active;
           return (
             <div key={a} className={`rounded-2xl border bg-white/[0.02] p-4 ${working ? AGENTS[a].ring : "border-white/10"}`}>
@@ -161,6 +162,12 @@ export function RunDashboard({ id }: { id: string }) {
                 </span>
               </div>
               <p className="mt-1 text-xs text-zinc-500">{AGENTS[a].role}</p>
+              {lastModel && (
+                <p className="mt-1.5 text-xs text-zinc-500">
+                  Última respuesta de
+                  <ModelBadge info={lastModel} />
+                </p>
+              )}
               <p className="mt-3 text-sm text-zinc-200">{st.detail}</p>
               {last && (
                 <p className="mt-2 line-clamp-2 text-xs text-zinc-500">
@@ -262,7 +269,8 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
         <ol className="mt-1 space-y-1 text-xs text-zinc-400">
           {history.map((e) => (
             <li key={e.id}>
-              <span className={AGENTS[e.agent as AgentId]?.text}>{AGENTS[e.agent as AgentId]?.name}</span> · {e.message}
+              <span className={AGENTS[e.agent as AgentId]?.text}>{AGENTS[e.agent as AgentId]?.name}</span>
+              <ModelBadge info={modelOf(e)} /> · {e.message}
             </li>
           ))}
         </ol>
@@ -283,7 +291,10 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
                   {h.checks.filter((c) => c.passed).length}/{h.checks.length} ✓ · {time(h.at)}
                 </span>
               </summary>
-              <p className="mt-2 text-xs text-sky-300/90">Develop: {h.dev_summary}</p>
+              <p className="mt-2 text-xs text-sky-300/90">
+                Develop
+                <ModelBadge info={h.dev_model} />: {h.dev_summary}
+              </p>
               {h.files.length > 0 && <p className="font-mono text-[11px] text-zinc-500">✎ {h.files.join(", ")}</p>}
               <ul className="mt-2 space-y-1.5">
                 {h.checks.map((c, i) => (
@@ -299,7 +310,8 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
               ))}
               </ul>
               <p className="mt-2 text-xs text-zinc-500">
-                Revisión de código: {h.review.approved ? "aprobada" : "rechazada"}
+                Revisión de código: {h.review.approved ? "aprobada" : "rechazada"} · Testing
+                <ModelBadge info={h.test_model} />
               </p>
               {h.review.issues.length > 0 && (
                 <ul className="mt-1 list-disc pl-5 text-sm text-red-300">
@@ -340,6 +352,7 @@ function ActivityLog({ events, tasks }: { events: AgentEvent[]; tasks: Task[] })
                   {a?.name ?? "Sistema"}
                 </span>
                 {label && <span className="ml-1.5 font-mono text-[11px] text-zinc-500">{label}</span>}
+                <ModelBadge info={modelOf(e)} />
                 <span className={`ml-2 ${e.type === "thinking" ? "italic text-zinc-500" : "text-zinc-300"}`}>{e.message}</span>
                 <EventExtra e={e} />
               </span>
@@ -348,6 +361,34 @@ function ActivityLog({ events, tasks }: { events: AgentEvent[]; tasks: Task[] })
         })}
       </ol>
     </div>
+  );
+}
+
+/** Qué IA respondió, leído de `data.usage` del evento (null en modo simulado o eventos sin llamada). */
+function modelOf(e: AgentEvent | undefined): ModelInfo | null {
+  const u = (e?.data as { usage?: unknown } | null)?.usage as Partial<ModelInfo> | undefined;
+  return u && typeof u === "object" && u.model ? { provider: u.provider ?? "gemini", model: u.model, skipped: u.skipped } : null;
+}
+
+function ModelBadge({ info }: { info: ModelInfo | null | undefined }) {
+  if (!info) return null;
+  const groq = info.provider === "groq";
+  const name = groq ? `Groq · ${info.model.split("/").pop()}` : `Gemini · ${info.model.replace(/^gemini-/, "")}`;
+  const backup = (info.skipped?.length ?? 0) > 0;
+  return (
+    <span
+      title={
+        backup
+          ? `Respondió ${info.model} como respaldo. Fallaron antes: ${info.skipped!.join(" · ")}`
+          : `Respondió ${info.model} (modelo principal)`
+      }
+      className={`ml-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-px align-middle font-mono text-[10px] ${
+        groq ? "bg-orange-500/15 text-orange-300" : "bg-sky-500/15 text-sky-300"
+      }`}
+    >
+      {name}
+      {backup && <span className="rounded-full bg-amber-400/20 px-1 text-amber-200">respaldo</span>}
+    </span>
   );
 }
 

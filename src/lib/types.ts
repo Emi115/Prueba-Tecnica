@@ -37,11 +37,21 @@ export interface TestReport {
   attempt: number;
 }
 
+/** Qué IA respondió una llamada (y cuáles fallaron antes, si respondió un respaldo). */
+export interface ModelInfo {
+  provider: "gemini" | "groq";
+  model: string;
+  skipped?: string[];
+}
+
 /** Una ronda completa: lo que entregó Develop y lo que dijo Testing. */
 export interface Attempt extends TestReport {
   dev_summary: string;
   files: string[];
   at: string;
+  /** IA que respondió por Develop y por Testing en esta ronda (null en modo simulado). */
+  dev_model?: ModelInfo | null;
+  test_model?: ModelInfo | null;
 }
 
 export interface Run {

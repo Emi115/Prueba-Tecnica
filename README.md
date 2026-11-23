@@ -47,12 +47,13 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
 - **Cadena de respaldo.** Cada llamada prueba en orden, y solo pasa al siguiente si el fallo es temporal
   (503/saturado, sin respuesta a tiempo, 429 o modelo no disponible):
   1. `gemini-3.1-flash-lite` (`GEMINI_MODEL`), con un reintento propio.
-  2. `gemini-2.5-flash-lite` (`GEMINI_FALLBACK_MODEL`; `none` lo desactiva), misma clave.
+  2. `gemini-flash-latest` (`GEMINI_FALLBACK_MODEL`; `none` lo desactiva): alias de Google que siempre apunta al Flash estable más reciente, misma clave.
   3. **Groq** `openai/gpt-oss-120b` (`GROQ_MODEL`), gratis y sin tarjeta, solo si hay `GROQ_API_KEY`
      (https://console.groq.com/keys). Se llama con `fetch` a su API compatible con OpenAI y el JSON se valida
      con los mismos esquemas Zod.
 
-  Si responde un respaldo, el registro del panel lo indica («respondió … como respaldo; falló …») y la cabecera
+  Cada mensaje del panel lleva una etiqueta con la IA que respondió (azul Gemini, naranja Groq, y «respaldo»
+  si el principal falló; al pasar el ratón se ve qué falló). También en cada agente y en cada intento. La cabecera
   muestra la cadena configurada. Una clave inválida **no** pasa al siguiente: detiene la ejecución con un mensaje claro.
 - Presupuesto de tiempo: toda la cadena cabe en ~230 s, por debajo del lock (280 s) y de los 300 s de una función de Vercel.
 - Si **ninguna** IA responde, el motor reintenta el paso hasta 5 veces seguidas con 15 s de espera
@@ -132,7 +133,7 @@ src/lib/agents/developer.ts      prompt + esquema de Develop
 src/lib/agents/tester.ts         prompt + esquema de Testing
 src/lib/engine.ts                máquina de estados (un paso por llamada)
 src/lib/checks.ts                ejecución determinista de los checks
-src/lib/llm.ts                   cliente de IA: Gemini + respaldo (Gemini 2.5, Groq), JSON + Zod, 429
+src/lib/llm.ts                   cliente de IA: Gemini + respaldo (Gemini Flash, Groq), JSON + Zod, 429
 src/lib/db.ts                    Neon / PGlite + esquema
 src/components/run-dashboard.tsx panel en vivo
 src/app/api/runs/…               API (crear, estado, paso)

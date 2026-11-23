@@ -59,8 +59,10 @@ export function runChecks(checks: Check[], files: Record<string, string>): Check
       }
       case "link_to": {
         const target = normalize(c.value);
-        const hrefs = $("a[href]")
-          .map((_, el) => normalize($(el).attr("href") ?? ""))
+        // Cuenta enlaces <a>, hojas de estilo <link href> y scripts <script src>:
+        // «index.html enlaza a styles.css» se cumple con <link rel="stylesheet" href="styles.css">.
+        const hrefs = $("a[href], link[href], script[src]")
+          .map((_, el) => normalize($(el).attr("href") ?? $(el).attr("src") ?? ""))
           .get();
         return hrefs.includes(target)
           ? result(true, `${file} enlaza a ${target}`)

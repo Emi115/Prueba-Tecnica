@@ -23,7 +23,8 @@ interface RunRow {
 
 export default function Home() {
   const router = useRouter();
-  const [request, setRequest] = useState(EXAMPLES[0]);
+  // Empieza vacío: el ejemplo va como placeholder para no lanzar algo que el usuario no ha escrito.
+  const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunRow[] | null>(null);
@@ -79,11 +80,13 @@ export default function Home() {
           id="req"
           value={request}
           onChange={(e) => setRequest(e.target.value)}
+          placeholder={`Ej.: ${EXAMPLES[0]}`}
           rows={3}
           maxLength={500}
-          className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-base outline-none focus:border-violet-400/60"
+          className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-base outline-none placeholder:text-zinc-600 focus:border-violet-400/60"
         />
-        <div className="mt-2 flex flex-wrap gap-2">
+        <p className="mt-2 text-xs text-zinc-500">Ejemplos (pulsa uno para escribirlo en la petición):</p>
+        <div className="mt-1.5 flex flex-wrap gap-2">
           {EXAMPLES.map((ex) => (
             <button
               type="button"

@@ -10,6 +10,7 @@ import { ConfigError, GeminiBusyError, RateLimitError, type LlmUsage } from "./l
 import {
   BUSY_WAIT_MS,
   MAX_ATTEMPTS,
+  type ModelInfo,
   MAX_BUSY_RETRIES,
   MAX_RATE_LIMIT_RETRIES,
   RATE_LIMIT_WAIT_MS,
@@ -110,13 +111,14 @@ async function setTask(taskId: string, fields: Partial<Pick<Task, "status" | "at
   await q(`UPDATE tasks SET ${sets}, updated_at = now() WHERE id = $1`, [taskId, ...values]);
 }
 
+// Cada evento guarda qué IA respondió (proveedor, modelo y los que fallaron antes);
+// el panel lo pinta como una etiqueta junto al mensaje.
 const usageNote = (u: LlmUsage | null) => (u ? { usage: u } : { usage: "simulado" });
 
-/** Si respondió un modelo de respaldo, lo dice en el mensaje del panel. */
-const via = (u: LlmUsage | null) =>
-  u?.skipped?.length
-    ? ` · (respondió ${u.provider === "groq" ? `Groq ${u.model}` : u.model} como respaldo; falló ${u.skipped.join(", ")})`
-    : "";
+const modelInfo = (u: unknown): ModelInfo | null => {
+  const x = u as LlmUsage | null | undefined;
+  return x && typeof x === "object" && x.model ? { provider: x.provider ?? "gemini", model: x.model, skipped: x.skipped } : null;
+};
 
 /* ----------------------------- motor ----------------------------- */
 
@@ -240,7 +242,7 @@ async function stepPlan(run: Run) {
       [randomUUID(), run.id, i, t.title, t.description, JSON.stringify(t.acceptance)],
     );
   }
-  await log(run.id, null, "orchestrator", "plan", `Plan con ${plan.tasks.length} tareas. ${plan.analysis}${via(usage)}`, {
+  await log(run.id, null, "orchestrator", "plan", `Plan con ${plan.tasks.length} tareas. ${plan.analysis}`, {
     tasks: plan.tasks.map((t) => t.title),
     ...usageNote(usage),
   });
@@ -298,7 +300,7 @@ async function stepWork(run: Run) {
       );
     }
     await setTask(task.id, { status: "testing" });
-    await log(run.id, task.id, "developer", "code", `${result.summary}${via(usage)}`, {
+    await log(run.id, task.id, "developer", "code", `${result.summary}`, {
       files: result.files.map((f) => f.path),
       ...usageNote(usage),
     });
@@ -320,7 +322,7 @@ async function stepWork(run: Run) {
     const passed = results.every((r) => r.passed) && review.approved;
     const report: TestReport = { passed, checks: results, review, attempt };
     const failed = results.filter((r) => !r.passed).length;
-    const [delivery] = await q<{ message: string; data: { files?: string[] } | null }>(
+    const [delivery] = await q<{ message: string; data: { files?: string[]; usage?: unknown } | null }>(
       `SELECT message, data FROM events WHERE task_id = $1 AND type = 'code' ORDER BY id DESC LIMIT 1`,
       [task.id],
     );
@@ -328,13 +330,15 @@ async function stepWork(run: Run) {
       ...report,
       dev_summary: delivery?.message ?? "",
       files: delivery?.data?.files ?? [],
+      dev_model: modelInfo(delivery?.data?.usage),
+      test_model: modelInfo(usage),
       at: new Date().toISOString(),
     };
     await q(`UPDATE tasks SET history = history || $2::jsonb WHERE id = $1`, [task.id, JSON.stringify([entry])]);
 
     if (passed) {
       await setTask(task.id, { status: "passed", attempts: attempt, checks, last_report: report });
-      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada${via(usage)}`, {
+      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada`, {
         report,
         ...usageNote(usage),
       });
@@ -362,8 +366,8 @@ async function stepWork(run: Run) {
         "tester",
         "fail",
         blocked
-          ? `❌ ${issues}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.${via(usage)}`
-          : `❌ ${issues}. Devuelvo la tarea a Develop.${via(usage)}`,
+          ? `❌ ${issues}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.`
+          : `❌ ${issues}. Devuelvo la tarea a Develop.`,
         { report, ...usageNote(usage) },
       );
       await setAgents(run.id, {
