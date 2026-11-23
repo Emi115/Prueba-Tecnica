@@ -6,7 +6,7 @@ import { contactDemoChecks, mergeChecks, runChecks } from "./checks";
 import { planTasks } from "./agents/orchestrator";
 import { develop } from "./agents/developer";
 import { test } from "./agents/tester";
-import { RateLimitError, type LlmUsage } from "./llm";
+import { ConfigError, RateLimitError, type LlmUsage } from "./llm";
 import {
   MAX_ATTEMPTS,
   MAX_RATE_LIMIT_RETRIES,
@@ -164,6 +164,13 @@ export async function step(runId: string): Promise<StepResult> {
       }
       await q(`UPDATE runs SET locked_until = NULL, updated_at = now() WHERE id = $1`, [runId]);
       return giveUp ? { status: "finished" } : { status: "rate_limited", retryAfterMs: RATE_LIMIT_WAIT_MS };
+    }
+    if (err instanceof ConfigError) {
+      // Clave inválida: no tiene sentido reintentar.
+      await log(runId, null, "system", "error", `${err.message} Ejecución detenida.`);
+      await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [runId, err.message]);
+      await setAgents(runId, { orchestrator: { state: "error", detail: "Detenido: GEMINI_API_KEY no válida" } });
+      return { status: "finished" };
     }
     const message = err instanceof Error ? err.message : String(err);
     const recent = await q<{ type: string }>(

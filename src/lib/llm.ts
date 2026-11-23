@@ -20,7 +20,21 @@ export class RateLimitError extends Error {
   }
 }
 
+/** Clave inválida o sin permisos: reintentar no sirve, el motor detiene la ejecución al momento. */
+export class ConfigError extends Error {
+  constructor(detail: string) {
+    super(
+      `GEMINI_API_KEY no es válida (${detail}). Revisa la variable en el servidor (Vercel → Settings → ` +
+        "Environment Variables): solo la clave, sin comillas ni espacios, y vuelve a desplegar.",
+    );
+    this.name = "ConfigError";
+  }
+}
+
 let client: GoogleGenAI | null = null;
+
+/** Tolera errores típicos al pegar la clave: espacios, saltos de línea y comillas. */
+const apiKey = () => process.env.GEMINI_API_KEY?.trim().replace(/^["']|["']$/g, "");
 
 /** Mismo esquema zod → JSON Schema para Gemini (sin la clave "$schema", que la API no necesita). */
 function jsonSchema(schema: z.ZodType) {
@@ -46,7 +60,7 @@ export async function structured<S extends z.ZodType>(opts: {
   maxTokens?: number;
 }): Promise<{ data: z.infer<S>; usage: LlmUsage }> {
   client ??= new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
+    apiKey: apiKey(),
     // El SDK reintenta 429 por defecto: lo limitamos a 5xx/timeouts (1 reintento).
     // Los 429 se convierten en RateLimitError y el motor decide (con tope) cuándo reintentar.
     httpOptions: {
@@ -69,6 +83,12 @@ export async function structured<S extends z.ZodType>(opts: {
     });
   } catch (err) {
     if (err instanceof ApiError && err.status === 429) throw new RateLimitError();
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      throw new ConfigError(`HTTP ${err.status}`);
+    }
+    if (err instanceof ApiError && err.status === 400 && /api key/i.test(err.message)) {
+      throw new ConfigError("Google responde «API key not valid»");
+    }
     throw err;
   }
 
