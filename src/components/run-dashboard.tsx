@@ -29,17 +29,21 @@ export function RunDashboard({ id }: { id: string }) {
   const [selected, setSelected] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/runs/${id}`, { cache: "no-store" });
+    // Si el servidor se reinicia o se cae la red, no rompemos: el siguiente sondeo lo reintenta.
+    const res = await fetch(`/api/runs/${id}`, { cache: "no-store" }).catch(() => null);
+    if (!res) return;
     if (res.status === 404) return setNotFound(true);
-    if (res.ok) setData(await res.json());
+    if (res.ok) setData(await res.json().catch(() => null));
   }, [id]);
 
   // Sondeo del estado para pintar en vivo lo que hace cada agente.
+  // Se detiene si la petición no existe (p. ej. BD en memoria tras reiniciar en local).
   useEffect(() => {
+    if (notFound) return;
     refresh();
     const t = setInterval(refresh, 1500);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, notFound]);
 
   // Bucle que hace avanzar la ejecución paso a paso mientras esta pestaña esté abierta.
   const active = data ? isActive(data.run.status) : false;
@@ -67,6 +71,10 @@ export function RunDashboard({ id }: { id: string }) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-20">
         <p>Esta petición no existe.</p>
+        <p className="mt-2 text-sm text-zinc-500">
+          Si estás en local sin DATABASE_URL, las peticiones se guardan en memoria y se pierden al reiniciar el
+          servidor.
+        </p>
         <Link href="/" className="text-violet-300 underline">
           Volver
         </Link>
