@@ -44,7 +44,7 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
 ### Gemini y los 429
 
 - `GEMINI_API_KEY` se lee solo en el servidor ([src/lib/llm.ts](src/lib/llm.ts), módulo `server-only`); nunca llega al navegador.
-- El SDK reintenta como mucho 1 vez errores 5xx/timeouts; los **429 no los reintenta el SDK**.
+- El SDK reintenta como mucho 2 veces errores 5xx/timeouts (p. ej. 503 por saturación de Gemini); los **429 no los reintenta el SDK**.
 - Si Gemini devuelve 429, el motor registra un aviso, el panel muestra un banner «Límite de Gemini alcanzado (429)»
   y reintenta tras 30 s, como máximo 3 veces seguidas; después detiene la ejecución con un mensaje claro.
 

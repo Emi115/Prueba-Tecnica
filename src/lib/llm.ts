@@ -61,11 +61,11 @@ export async function structured<S extends z.ZodType>(opts: {
 }): Promise<{ data: z.infer<S>; usage: LlmUsage }> {
   client ??= new GoogleGenAI({
     apiKey: apiKey(),
-    // El SDK reintenta 429 por defecto: lo limitamos a 5xx/timeouts (1 reintento).
+    // El SDK reintenta 429 por defecto: lo limitamos a 5xx/timeouts (2 reintentos).
     // Los 429 se convierten en RateLimitError y el motor decide (con tope) cuándo reintentar.
     httpOptions: {
       timeout: 240_000,
-      retryOptions: { attempts: 2, initialDelay: 2, maxDelay: 8, httpStatusCodes: [408, 500, 502, 503, 504] },
+      retryOptions: { attempts: 3, initialDelay: 2, maxDelay: 8, httpStatusCodes: [408, 500, 502, 503, 504] },
     },
   });
 
@@ -88,6 +88,10 @@ export async function structured<S extends z.ZodType>(opts: {
     }
     if (err instanceof ApiError && err.status === 400 && /api key/i.test(err.message)) {
       throw new ConfigError("Google responde «API key not valid»");
+    }
+    if (err instanceof ApiError && err.status >= 500) {
+      // El SDK ya reintentó; el motor volverá a intentarlo en el siguiente paso.
+      throw new Error(`Gemini está saturado o no disponible ahora mismo (HTTP ${err.status}). Es temporal`);
     }
     throw err;
   }

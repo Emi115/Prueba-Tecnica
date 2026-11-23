@@ -37,6 +37,15 @@ export function runChecks(checks: Check[], files: Record<string, string>): Check
           : result(false, `No aparece el texto «${c.value}» en ${file}`);
       }
       case "selector_exists": {
+        // En un .css no hay elementos que buscar: se comprueba que exista una regla con ese selector.
+        if (file.endsWith(".css")) {
+          const norm = (s: string) => s.replace(/\s+/g, " ").replace(/\s*([>+~,])\s*/g, "$1").trim().toLowerCase();
+          const target = norm(c.selector);
+          const selectors = cssSelectors(content).map(norm);
+          return selectors.includes(target)
+            ? result(true, `Hay una regla para «${c.selector}» en ${file}`)
+            : result(false, `No hay ninguna regla CSS para «${c.selector}» en ${file}`);
+        }
         let n = 0;
         try {
           n = $(c.selector).length;
@@ -128,4 +137,16 @@ export function mergeChecks(a: Check[], b: Check[]): Check[] {
   const key = (x: Check) => [x.type, x.file, x.selector, x.value].join("|").toLowerCase();
   const seen = new Set(a.map(key));
   return [...a, ...b.filter((x) => !seen.has(key(x)))];
+}
+
+/** Selectores de todas las reglas de una hoja de estilos (incluidas las de dentro de @media). */
+export function cssSelectors(css: string): string[] {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out: string[] = [];
+  for (const m of clean.matchAll(/([^{};]+)\{/g)) {
+    const group = m[1].trim();
+    if (!group || group.startsWith("@")) continue;
+    out.push(...group.split(",").map((s) => s.trim()).filter(Boolean));
+  }
+  return out;
 }
