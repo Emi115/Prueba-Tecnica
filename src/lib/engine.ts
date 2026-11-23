@@ -112,6 +112,12 @@ async function setTask(taskId: string, fields: Partial<Pick<Task, "status" | "at
 
 const usageNote = (u: LlmUsage | null) => (u ? { usage: u } : { usage: "simulado" });
 
+/** Si respondió un modelo de respaldo, lo dice en el mensaje del panel. */
+const via = (u: LlmUsage | null) =>
+  u?.skipped?.length
+    ? ` · (respondió ${u.provider === "groq" ? `Groq ${u.model}` : u.model} como respaldo; falló ${u.skipped.join(", ")})`
+    : "";
+
 /* ----------------------------- motor ----------------------------- */
 
 /**
@@ -142,7 +148,7 @@ export async function step(runId: string): Promise<StepResult> {
     if (locked.status === "planning") await stepPlan(locked);
     else await stepWork(locked);
   } catch (err) {
-    // 429 (cuota) y 5xx/timeouts (Gemini saturado) son temporales: no cuentan como error de código.
+    // 429 (cuota) y 5xx/timeouts (todas las IAs de la cadena saturadas) son temporales: no cuentan como error de código.
     // Reintentos limitados, con espera entre ellos, y mensaje claro en el panel.
     const transient =
       err instanceof RateLimitError
@@ -150,16 +156,16 @@ export async function step(runId: string): Promise<StepResult> {
             type: "rate_limit",
             max: MAX_RATE_LIMIT_RETRIES,
             wait: RATE_LIMIT_WAIT_MS,
-            why: "Gemini devolvió 429 (cuota agotada) varias veces seguidas.",
-            detail: "Detenido: cuota de Gemini agotada (429)",
+            why: "Todas las IAs devolvieron 429 (cuota agotada) varias veces seguidas.",
+            detail: "Detenido: cuota agotada (429)",
           }
         : err instanceof GeminiBusyError
           ? {
               type: "busy",
               max: MAX_BUSY_RETRIES,
               wait: BUSY_WAIT_MS,
-              why: "Gemini estuvo saturado (503) o sin responder varias veces seguidas. Prueba más tarde.",
-              detail: "Detenido: Gemini saturado",
+              why: "Ninguna IA respondió (saturadas o sin respuesta) varias veces seguidas. Prueba más tarde.",
+              detail: "Detenido: IAs saturadas",
             }
           : null;
     if (transient) {
@@ -191,7 +197,7 @@ export async function step(runId: string): Promise<StepResult> {
       // Clave inválida: no tiene sentido reintentar.
       await log(runId, null, "system", "error", `${err.message} Ejecución detenida.`);
       await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [runId, err.message]);
-      await setAgents(runId, { orchestrator: { state: "error", detail: "Detenido: GEMINI_API_KEY no válida" } });
+      await setAgents(runId, { orchestrator: { state: "error", detail: `Detenido: ${err.variable} no válida` } });
       return { status: "finished" };
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -234,7 +240,7 @@ async function stepPlan(run: Run) {
       [randomUUID(), run.id, i, t.title, t.description, JSON.stringify(t.acceptance)],
     );
   }
-  await log(run.id, null, "orchestrator", "plan", `Plan con ${plan.tasks.length} tareas. ${plan.analysis}`, {
+  await log(run.id, null, "orchestrator", "plan", `Plan con ${plan.tasks.length} tareas. ${plan.analysis}${via(usage)}`, {
     tasks: plan.tasks.map((t) => t.title),
     ...usageNote(usage),
   });
@@ -292,7 +298,7 @@ async function stepWork(run: Run) {
       );
     }
     await setTask(task.id, { status: "testing" });
-    await log(run.id, task.id, "developer", "code", result.summary, {
+    await log(run.id, task.id, "developer", "code", `${result.summary}${via(usage)}`, {
       files: result.files.map((f) => f.path),
       ...usageNote(usage),
     });
@@ -328,7 +334,7 @@ async function stepWork(run: Run) {
 
     if (passed) {
       await setTask(task.id, { status: "passed", attempts: attempt, checks, last_report: report });
-      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada`, {
+      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada${via(usage)}`, {
         report,
         ...usageNote(usage),
       });
@@ -356,8 +362,8 @@ async function stepWork(run: Run) {
         "tester",
         "fail",
         blocked
-          ? `❌ ${issues}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.`
-          : `❌ ${issues}. Devuelvo la tarea a Develop.`,
+          ? `❌ ${issues}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.${via(usage)}`
+          : `❌ ${issues}. Devuelvo la tarea a Develop.${via(usage)}`,
         { report, ...usageNote(usage) },
       );
       await setAgents(run.id, {

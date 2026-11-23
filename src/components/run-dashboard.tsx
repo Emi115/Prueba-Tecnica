@@ -12,7 +12,7 @@ interface RunData {
   tasks: Task[];
   events: AgentEvent[];
   files: SiteFile[];
-  meta: { mock: boolean; model: string; localDb: boolean };
+  meta: { mock: boolean; model: string; fallbacks: string[]; localDb: boolean };
 }
 
 const COLUMNS: { title: string; statuses: TaskStatus[] }[] = [
@@ -106,6 +106,14 @@ export function RunDashboard({ id }: { id: string }) {
           <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-400">
             {meta.mock ? "modo simulado" : meta.model}
           </span>
+          {!meta.mock && meta.fallbacks?.length > 0 && (
+            <span
+              className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-500"
+              title={`Si ${meta.model} falla (saturado, 429 o sin respuesta), se prueba en orden: ${meta.fallbacks.join(" → ")}`}
+            >
+              respaldo: {meta.fallbacks.join(" → ")}
+            </span>
+          )}
           {tasks.length > 0 && (
             <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-400">
               {passed}/{tasks.length} tareas
@@ -132,7 +140,7 @@ export function RunDashboard({ id }: { id: string }) {
 
       {rateLimited && (
         <div role="alert" className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-          <p className="font-semibold">Límite de Gemini alcanzado (429)</p>
+          <p className="font-semibold">Límite de peticiones alcanzado (429)</p>
           <p className="mt-1 text-amber-200/90">{rateLimited.message}</p>
         </div>
       )}

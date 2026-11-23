@@ -41,13 +41,24 @@ selector, el fichero y el detalle exacto (p. ej. `Campos sin <label> en contacto
 Cada ronda queda guardada en `tasks.history` (resumen de Develop, ficheros tocados y resultado check a check), y
 el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
 
-### Gemini y los 429
+### Gemini, IA de respaldo y los 429
 
-- `GEMINI_API_KEY` se lee solo en el servidor ([src/lib/llm.ts](src/lib/llm.ts), módulo `server-only`); nunca llega al navegador.
-- El SDK reintenta como mucho 2 veces errores 5xx/timeouts (p. ej. 503 por saturación de Gemini), con un máximo de 70 s por intento para que todo quepa en los 300 s de una función de Vercel; los **429 no los reintenta el SDK**.
-- Si Gemini sigue saturado o sin responder, el motor lo reintenta hasta 5 veces seguidas con 15 s de espera («Gemini está saturado… Reintento 2/5») y solo entonces detiene la ejecución.
-- Si Gemini devuelve 429, el motor registra un aviso, el panel muestra un banner «Límite de Gemini alcanzado (429)»
-  y reintenta tras 30 s, como máximo 3 veces seguidas; después detiene la ejecución con un mensaje claro.
+- `GEMINI_API_KEY` y `GROQ_API_KEY` se leen solo en el servidor ([src/lib/llm.ts](src/lib/llm.ts), módulo `server-only`); nunca llegan al navegador.
+- **Cadena de respaldo.** Cada llamada prueba en orden, y solo pasa al siguiente si el fallo es temporal
+  (503/saturado, sin respuesta a tiempo, 429 o modelo no disponible):
+  1. `gemini-3.1-flash-lite` (`GEMINI_MODEL`), con un reintento propio.
+  2. `gemini-2.5-flash-lite` (`GEMINI_FALLBACK_MODEL`; `none` lo desactiva), misma clave.
+  3. **Groq** `openai/gpt-oss-120b` (`GROQ_MODEL`), gratis y sin tarjeta, solo si hay `GROQ_API_KEY`
+     (https://console.groq.com/keys). Se llama con `fetch` a su API compatible con OpenAI y el JSON se valida
+     con los mismos esquemas Zod.
+
+  Si responde un respaldo, el registro del panel lo indica («respondió … como respaldo; falló …») y la cabecera
+  muestra la cadena configurada. Una clave inválida **no** pasa al siguiente: detiene la ejecución con un mensaje claro.
+- Presupuesto de tiempo: toda la cadena cabe en ~230 s, por debajo del lock (280 s) y de los 300 s de una función de Vercel.
+- Si **ninguna** IA responde, el motor reintenta el paso hasta 5 veces seguidas con 15 s de espera
+  («Ninguna IA ha respondido… Reintento 2/5») y solo entonces detiene la ejecución.
+- Si todas devuelven 429, el panel muestra un banner «Límite de peticiones alcanzado (429)» y reintenta tras 30 s,
+  como máximo 3 veces seguidas; después detiene la ejecución con un mensaje claro.
 
 ### Estados
 
@@ -79,7 +90,7 @@ usa PGlite (Postgres en memoria) para poder probar sin crear cuentas.
 - Tarjetas de los 3 agentes con su estado en vivo y lo último que han hecho.
 - Tablero de tareas: Pendiente · En desarrollo · En testing · Con fallos · Terminadas, con la ronda (`2/3`) y los checks que pasan.
 - Al pulsar una tarea: criterios de aceptación, historial y cada intento con su resultado check a check.
-- Banner de aviso si Gemini devuelve 429.
+- Banner de aviso si las IAs devuelven 429, y qué IA de respaldo respondió cuando la principal falla.
 - Registro de actividad de todos los agentes.
 - La web resultante en vivo (iframe aislado) y su código.
 
@@ -98,7 +109,9 @@ Sin `GEMINI_API_KEY` funciona en **modo simulado**: agentes deterministas que re
 
 1. Sube el repo a GitHub e impórtalo en Vercel (o `npx vercel`).
 2. En el proyecto de Vercel: **Storage → Create → Neon** (plan gratuito). Crea `DATABASE_URL` sola.
-3. **Settings → Environment Variables:** `GEMINI_API_KEY` (de https://aistudio.google.com/apikey) y, opcional, `GEMINI_MODEL`.
+3. **Settings → Environment Variables:** `GEMINI_API_KEY` (de https://aistudio.google.com/apikey), `GROQ_API_KEY`
+   (opcional, de https://console.groq.com/keys, para la IA de respaldo) y, opcionales, `GEMINI_MODEL`,
+   `GEMINI_FALLBACK_MODEL` y `GROQ_MODEL`.
 4. Redeploy.
 
 ## Cómo usé Claude Code
@@ -119,7 +132,7 @@ src/lib/agents/developer.ts      prompt + esquema de Develop
 src/lib/agents/tester.ts         prompt + esquema de Testing
 src/lib/engine.ts                máquina de estados (un paso por llamada)
 src/lib/checks.ts                ejecución determinista de los checks
-src/lib/llm.ts                   cliente de Gemini (salida JSON + Zod, 429)
+src/lib/llm.ts                   cliente de IA: Gemini + respaldo (Gemini 2.5, Groq), JSON + Zod, 429
 src/lib/db.ts                    Neon / PGlite + esquema
 src/components/run-dashboard.tsx panel en vivo
 src/app/api/runs/…               API (crear, estado, paso)
