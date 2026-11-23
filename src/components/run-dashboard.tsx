@@ -370,10 +370,16 @@ function modelOf(e: AgentEvent | undefined): ModelInfo | null {
   return u && typeof u === "object" && u.model ? { provider: u.provider ?? "gemini", model: u.model, skipped: u.skipped } : null;
 }
 
+const PROVIDER_BADGE: Record<ModelInfo["provider"], { name: string; cls: string }> = {
+  gemini: { name: "Gemini", cls: "bg-sky-500/15 text-sky-300" },
+  groq: { name: "Groq", cls: "bg-orange-500/15 text-orange-300" },
+  mistral: { name: "Mistral", cls: "bg-rose-500/15 text-rose-300" },
+};
+
 function ModelBadge({ info }: { info: ModelInfo | null | undefined }) {
   if (!info) return null;
-  const groq = info.provider === "groq";
-  const name = groq ? `Groq · ${info.model.split("/").pop()}` : `Gemini · ${info.model.replace(/^gemini-/, "")}`;
+  const style = PROVIDER_BADGE[info.provider] ?? PROVIDER_BADGE.gemini;
+  const name = `${style.name} · ${info.model.split("/").pop()!.replace(/^gemini-/, "")}`;
   const backup = (info.skipped?.length ?? 0) > 0;
   return (
     <span
@@ -383,7 +389,7 @@ function ModelBadge({ info }: { info: ModelInfo | null | undefined }) {
           : `Respondió ${info.model} (modelo principal)`
       }
       className={`ml-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-px align-middle font-mono text-[10px] ${
-        groq ? "bg-orange-500/15 text-orange-300" : "bg-sky-500/15 text-sky-300"
+        style.cls
       }`}
     >
       {name}

@@ -7,6 +7,7 @@ import { z } from "zod";
  *   1. Gemini principal  (GEMINI_MODEL, por defecto gemini-3.1-flash-lite)
  *   2. Gemini de respaldo (GEMINI_FALLBACK_MODEL, por defecto gemini-flash-latest; "none" lo desactiva)
  *   3. Groq               (solo si hay GROQ_API_KEY; GROQ_MODEL, por defecto openai/gpt-oss-120b)
+ *   4. Mistral            (solo si hay MISTRAL_API_KEY; MISTRAL_MODEL, por defecto mistral-small-latest)
  * Solo se pasa al siguiente si el fallo es temporal (saturado, sin respuesta, 429 o modelo no
  * disponible). Una clave inválida detiene la ejecución: reintentar con otro modelo la ocultaría.
  * ------------------------------------------------------------------ */
@@ -17,6 +18,8 @@ export const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
 const GEMINI_FALLBACK = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-latest";
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MISTRAL_MODEL = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
+const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
 /** Sin clave (o con AGENTS_MOCK=1) los agentes usan respuestas simuladas deterministas. */
 // El valor de ejemplo de .env.example cuenta como "sin clave".
@@ -26,12 +29,21 @@ export const isMock = () =>
 /** Tolera errores típicos al pegar la clave: espacios, saltos de línea y comillas. */
 const cleanKey = (v: string | undefined) => v?.trim().replace(/^["']|["']$/g, "") || undefined;
 const geminiKey = () => cleanKey(process.env.GEMINI_API_KEY);
-const groqKey = () => {
-  const k = cleanKey(process.env.GROQ_API_KEY);
+/** Claves opcionales de los respaldos: vacías o con el valor de ejemplo cuentan como "sin clave". */
+const optionalKey = (v: string | undefined) => {
+  const k = cleanKey(v);
   return k && !k.includes("ejemplo") ? k : undefined;
 };
+const groqKey = () => optionalKey(process.env.GROQ_API_KEY);
+const mistralKey = () => optionalKey(process.env.MISTRAL_API_KEY);
 
-type Provider = "gemini" | "groq";
+type Provider = "gemini" | "groq" | "mistral";
+
+/** Proveedores con API compatible con OpenAI (chat/completions). */
+const OPENAI_COMPAT = {
+  groq: { name: "Groq", url: GROQ_URL, key: groqKey, env: "GROQ_API_KEY" },
+  mistral: { name: "Mistral", url: MISTRAL_URL, key: mistralKey, env: "MISTRAL_API_KEY" },
+} as const;
 interface Slot {
   provider: Provider;
   model: string;
@@ -42,23 +54,25 @@ interface Slot {
 }
 
 /**
- * Presupuesto de tiempo de un paso: 60 s × 2 + 40 s + 40 s ≈ 205 s en el peor caso, por debajo
+ * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s × 3 ≈ 215 s en el peor caso, por debajo
  * del lock (280 s) y del maxDuration de Vercel (300 s). Además, cada slot recorta su timeout
  * al tiempo que quede del presupuesto, así nunca se corta la función a medias.
  */
 const STEP_BUDGET_MS = 230_000;
 
 export function modelChain(): Slot[] {
-  const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 60_000, attempts: 2 }];
+  const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 50_000, attempts: 2 }];
   if (GEMINI_FALLBACK !== "none" && GEMINI_FALLBACK !== MODEL) {
-    chain.push({ provider: "gemini", model: GEMINI_FALLBACK, timeoutMs: 40_000, attempts: 1 });
+    chain.push({ provider: "gemini", model: GEMINI_FALLBACK, timeoutMs: 35_000, attempts: 1 });
   }
-  if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 40_000, attempts: 1 });
+  if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 35_000, attempts: 1 });
+  if (mistralKey()) chain.push({ provider: "mistral", model: MISTRAL_MODEL, timeoutMs: 35_000, attempts: 1 });
   return chain;
 }
 
 /** Nombres de los modelos de la cadena, para mostrarlos en el panel (sin claves). */
-export const modelNames = () => modelChain().map((s) => (s.provider === "groq" ? `groq:${s.model}` : s.model));
+export const modelNames = () =>
+  modelChain().map((s) => (s.provider === "gemini" ? s.model : `${s.provider}:${s.model}`));
 
 /** Todos los modelos devolvieron 429 (cuota o límite de peticiones agotado). */
 export class RateLimitError extends Error {
@@ -66,7 +80,7 @@ export class RateLimitError extends Error {
     super(
       "Límite de peticiones alcanzado (429) en todos los modelos disponibles" +
         (detail ? ` (${detail})` : "") +
-        ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consola de Groq.",
+        ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consolas de Groq y Mistral.",
     );
     this.name = "RateLimitError";
   }
@@ -188,13 +202,15 @@ async function callGemini(model: string, attempts: number, o: CallOpts): Promise
   };
 }
 
-/* ------------------------------ Groq ------------------------------ */
+/* ---------------------- Groq y Mistral ---------------------- */
 
 /**
- * Groq expone una API compatible con OpenAI: basta con fetch, sin librerías.
- * El plan gratuito limita los tokens por minuto, así que la salida se acota.
+ * Groq y Mistral exponen una API compatible con OpenAI (chat/completions): basta con fetch,
+ * sin librerías, y la misma función sirve para los dos.
+ * El plan gratuito de Groq limita los tokens por minuto, así que ahí la salida se acota.
  */
-async function callGroq(model: string, o: CallOpts): Promise<RawResult> {
+async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: CallOpts): Promise<RawResult> {
+  const p = OPENAI_COMPAT[provider];
   const body: Record<string, unknown> = {
     model,
     messages: [
@@ -205,16 +221,20 @@ async function callGroq(model: string, o: CallOpts): Promise<RawResult> {
       type: "json_schema",
       json_schema: { name: "respuesta", schema: jsonSchema(o.schema), strict: false },
     },
-    max_completion_tokens: Math.min(o.maxTokens, 6000),
     temperature: 0.2,
   };
-  if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
+  if (provider === "groq") {
+    body.max_completion_tokens = Math.min(o.maxTokens, 6000);
+    if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
+  } else {
+    body.max_tokens = o.maxTokens;
+  }
 
   let res: Response;
   try {
-    res = await fetch(GROQ_URL, {
+    res = await fetch(p.url, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${groqKey()}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${p.key()}` },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(o.timeoutMs),
     });
@@ -225,7 +245,7 @@ async function callGroq(model: string, o: CallOpts): Promise<RawResult> {
 
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);
-    if (res.status === 401 || res.status === 403) throw new ConfigError(`HTTP ${res.status}`, "GROQ_API_KEY");
+    if (res.status === 401 || res.status === 403) throw new ConfigError(`HTTP ${res.status}`, p.env);
     if (res.status === 429) throw new SlotUnavailable("rate_limit", "429");
     if (res.status === 413) throw new SlotUnavailable("busy", "petición demasiado grande para el plan gratuito (413)");
     if (res.status === 404) throw new SlotUnavailable("busy", "modelo no disponible (404)");
@@ -254,7 +274,7 @@ function isTimeout(err: unknown) {
   return /abort|timed?\s?out|timeout/i.test(`${e?.name} ${e?.message}`);
 }
 
-const label = (s: Slot) => (s.provider === "groq" ? `Groq ${s.model}` : s.model);
+const label = (s: Slot) => (s.provider === "gemini" ? s.model : `${OPENAI_COMPAT[s.provider].name} ${s.model}`);
 
 /**
  * Una llamada al modelo con salida JSON validada con zod, con respaldo automático.
@@ -279,7 +299,9 @@ export async function structured<S extends z.ZodType>(opts: {
     let raw: RawResult;
     try {
       raw =
-        slot.provider === "gemini" ? await callGemini(slot.model, slot.attempts, call) : await callGroq(slot.model, call);
+        slot.provider === "gemini"
+          ? await callGemini(slot.model, slot.attempts, call)
+          : await callOpenAICompat(slot.provider, slot.model, call);
     } catch (err) {
       if (err instanceof SlotUnavailable) {
         failures.push({ slot, kind: err.kind, short: err.short });

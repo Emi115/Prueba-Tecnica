@@ -43,7 +43,7 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
 
 ### Gemini, IA de respaldo y los 429
 
-- `GEMINI_API_KEY` y `GROQ_API_KEY` se leen solo en el servidor ([src/lib/llm.ts](src/lib/llm.ts), módulo `server-only`); nunca llegan al navegador.
+- `GEMINI_API_KEY`, `GROQ_API_KEY` y `MISTRAL_API_KEY` se leen solo en el servidor ([src/lib/llm.ts](src/lib/llm.ts), módulo `server-only`); nunca llegan al navegador.
 - **Cadena de respaldo.** Cada llamada prueba en orden, y solo pasa al siguiente si el fallo es temporal
   (503/saturado, sin respuesta a tiempo, 429 o modelo no disponible):
   1. `gemini-3.1-flash-lite` (`GEMINI_MODEL`), con un reintento propio.
@@ -51,11 +51,14 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
   3. **Groq** `openai/gpt-oss-120b` (`GROQ_MODEL`), gratis y sin tarjeta, solo si hay `GROQ_API_KEY`
      (https://console.groq.com/keys). Se llama con `fetch` a su API compatible con OpenAI y el JSON se valida
      con los mismos esquemas Zod.
+  4. **Mistral** `mistral-small-latest` (`MISTRAL_MODEL`), plan gratuito «Experiment» sin tarjeta, solo si hay
+     `MISTRAL_API_KEY` (https://console.mistral.ai/api-keys). Misma API compatible con OpenAI y la misma función
+     que Groq. Otra empresa y otra infraestructura: es poco probable que falle a la vez que Google y Groq.
 
-  Cada mensaje del panel lleva una etiqueta con la IA que respondió (azul Gemini, naranja Groq, y «respaldo»
+  Cada mensaje del panel lleva una etiqueta con la IA que respondió (azul Gemini, naranja Groq, rosa Mistral, y «respaldo»
   si el principal falló; al pasar el ratón se ve qué falló). También en cada agente y en cada intento. La cabecera
   muestra la cadena configurada. Una clave inválida **no** pasa al siguiente: detiene la ejecución con un mensaje claro.
-- Presupuesto de tiempo: toda la cadena cabe en ~230 s, por debajo del lock (280 s) y de los 300 s de una función de Vercel.
+- Presupuesto de tiempo: toda la cadena (cuatro modelos) cabe en ~230 s, por debajo del lock (280 s) y de los 300 s de una función de Vercel.
 - Si **ninguna** IA responde, el motor reintenta el paso hasta 5 veces seguidas con 15 s de espera
   («Ninguna IA ha respondido… Reintento 2/5») y solo entonces detiene la ejecución.
 - Si todas devuelven 429, el panel muestra un banner «Límite de peticiones alcanzado (429)» y reintenta tras 30 s,
@@ -111,8 +114,8 @@ Sin `GEMINI_API_KEY` funciona en **modo simulado**: agentes deterministas que re
 1. Sube el repo a GitHub e impórtalo en Vercel (o `npx vercel`).
 2. En el proyecto de Vercel: **Storage → Create → Neon** (plan gratuito). Crea `DATABASE_URL` sola.
 3. **Settings → Environment Variables:** `GEMINI_API_KEY` (de https://aistudio.google.com/apikey), `GROQ_API_KEY`
-   (opcional, de https://console.groq.com/keys, para la IA de respaldo) y, opcionales, `GEMINI_MODEL`,
-   `GEMINI_FALLBACK_MODEL` y `GROQ_MODEL`.
+   y `MISTRAL_API_KEY` (opcionales, de https://console.groq.com/keys y https://console.mistral.ai/api-keys, para
+   las IAs de respaldo) y, opcionales, `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`, `GROQ_MODEL` y `MISTRAL_MODEL`.
 4. Redeploy.
 
 ## Cómo usé Claude Code
@@ -133,7 +136,7 @@ src/lib/agents/developer.ts      prompt + esquema de Develop
 src/lib/agents/tester.ts         prompt + esquema de Testing
 src/lib/engine.ts                máquina de estados (un paso por llamada)
 src/lib/checks.ts                ejecución determinista de los checks
-src/lib/llm.ts                   cliente de IA: Gemini + respaldo (Gemini Flash, Groq), JSON + Zod, 429
+src/lib/llm.ts                   cliente de IA: Gemini + respaldo (Gemini Flash, Groq, Mistral), JSON + Zod, 429
 src/lib/db.ts                    Neon / PGlite + esquema
 src/components/run-dashboard.tsx panel en vivo
 src/app/api/runs/…               API (crear, estado, paso)

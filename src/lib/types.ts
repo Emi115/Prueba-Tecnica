@@ -39,7 +39,7 @@ export interface TestReport {
 
 /** Qué IA respondió una llamada (y cuáles fallaron antes, si respondió un respaldo). */
 export interface ModelInfo {
-  provider: "gemini" | "groq";
+  provider: "gemini" | "groq" | "mistral";
   model: string;
   skipped?: string[];
 }
