@@ -135,6 +135,9 @@ export async function step(runId: string): Promise<StepResult> {
     return { status: r && (r.status === "planning" || r.status === "working") ? "busy" : "finished" };
   }
 
+  // Tras un 429/503 el propio servidor mantiene el lock durante la espera, para que
+  // ninguna pestaña (ni varias a la vez) reintente antes de tiempo.
+  let holdMs = 0;
   try {
     if (locked.status === "planning") await stepPlan(locked);
     else await stepWork(locked);
@@ -181,7 +184,7 @@ export async function step(runId: string): Promise<StepResult> {
         await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [runId, transient.why]);
         await setAgents(runId, { orchestrator: { state: "error", detail: transient.detail } });
       }
-      await q(`UPDATE runs SET locked_until = NULL, updated_at = now() WHERE id = $1`, [runId]);
+      holdMs = giveUp ? 0 : transient.wait;
       return giveUp ? { status: "finished" } : { status: "rate_limited", retryAfterMs: transient.wait };
     }
     if (err instanceof ConfigError) {
@@ -211,7 +214,11 @@ export async function step(runId: string): Promise<StepResult> {
       });
     }
   } finally {
-    await q(`UPDATE runs SET locked_until = NULL, updated_at = now() WHERE id = $1`, [runId]);
+    await q(
+      `UPDATE runs SET locked_until = CASE WHEN $2::int > 0 THEN now() + make_interval(secs => $2::int / 1000.0) END,
+              updated_at = now() WHERE id = $1`,
+      [runId, holdMs],
+    );
   }
   return { status: "advanced" };
 }
