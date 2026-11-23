@@ -1,0 +1,95 @@
+export type AgentId = "orchestrator" | "developer" | "tester";
+
+export type AgentState = "idle" | "working" | "waiting" | "done" | "error";
+
+export interface AgentStatus {
+  state: AgentState;
+  detail: string;
+}
+
+export type RunStatus = "planning" | "working" | "done" | "done_with_errors" | "failed";
+
+export type TaskStatus =
+  | "pending" // creada por el orquestador, sin asignar
+  | "developing" // Develop trabajando
+  | "testing" // Testing comprobando
+  | "changes_requested" // Testing encontró fallos → vuelve a Develop
+  | "passed" // todo verde
+  | "blocked"; // agotó los intentos
+
+export interface Check {
+  type: "file_exists" | "text_contains" | "selector_exists" | "link_to" | "no_broken_links" | "labels_for_inputs";
+  file: string;
+  selector: string;
+  value: string;
+  description: string;
+}
+
+export interface CheckResult extends Check {
+  passed: boolean;
+  detail: string;
+}
+
+export interface TestReport {
+  passed: boolean;
+  checks: CheckResult[];
+  review: { approved: boolean; issues: string[] };
+  attempt: number;
+}
+
+/** Una ronda completa: lo que entregó Develop y lo que dijo Testing. */
+export interface Attempt extends TestReport {
+  dev_summary: string;
+  files: string[];
+  at: string;
+}
+
+export interface Run {
+  id: string;
+  request: string;
+  status: RunStatus;
+  summary: string | null;
+  agents: Record<AgentId, AgentStatus>;
+  locked_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Task {
+  id: string;
+  run_id: string;
+  idx: number;
+  title: string;
+  description: string;
+  acceptance: string[];
+  status: TaskStatus;
+  attempts: number;
+  checks: Check[] | null;
+  last_report: TestReport | null;
+  history: Attempt[];
+  updated_at: string;
+}
+
+export interface AgentEvent {
+  id: number;
+  run_id: string;
+  task_id: string | null;
+  agent: AgentId | "system";
+  type: string;
+  message: string;
+  data: unknown;
+  created_at: string;
+}
+
+export interface SiteFile {
+  path: string;
+  content: string;
+  updated_at: string;
+}
+
+/** Rondas Develop → Testing por tarea antes de bloquearla. */
+export const MAX_ATTEMPTS = 3;
+/** 429 seguidos de Gemini antes de detener la ejecución. */
+export const MAX_RATE_LIMIT_RETRIES = 3;
+/** Espera sugerida al panel tras un 429. */
+export const RATE_LIMIT_WAIT_MS = 30_000;
