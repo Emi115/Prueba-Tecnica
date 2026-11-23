@@ -1,4 +1,5 @@
 import { q } from "@/lib/db";
+import { BASE_SITE } from "@/lib/base-site";
 
 const TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8",
@@ -6,17 +7,22 @@ const TYPES: Record<string, string> = {
   js: "text/javascript; charset=utf-8",
 };
 
-/** Sirve la web generada por los agentes (desde la BD) para verla en un iframe. */
+/**
+ * Sirve la web generada por los agentes (desde la BD) para verla en un iframe o a pantalla completa.
+ * /preview/original/… sirve la web de partida, sin tocar la base de datos.
+ */
 export async function GET(_req: Request, ctx: RouteContext<"/preview/[runId]/[[...path]]">) {
   const { runId, path } = await ctx.params;
   const file = path?.length ? path.join("/").toLowerCase() : "index.html";
-  const [row] = await q<{ content: string }>(`SELECT content FROM files WHERE run_id = $1 AND path = $2`, [
-    runId,
-    file,
-  ]);
-  if (!row) return new Response(`404 · ${file} no existe (todavía)`, { status: 404 });
+  const content =
+    runId === "original"
+      ? BASE_SITE[file]
+      : (
+          await q<{ content: string }>(`SELECT content FROM files WHERE run_id = $1 AND path = $2`, [runId, file])
+        )[0]?.content;
+  if (content === undefined) return new Response(`404 · ${file} no existe (todavía)`, { status: 404 });
   const ext = file.split(".").pop() ?? "";
-  return new Response(row.content, {
+  return new Response(content, {
     headers: {
       "content-type": TYPES[ext] ?? "text/plain; charset=utf-8",
       "cache-control": "no-store",

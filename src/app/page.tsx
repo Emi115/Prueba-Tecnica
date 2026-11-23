@@ -62,6 +62,14 @@ export default function Home() {
         lo divide en tareas, <span className="text-sky-300">Develop</span> las programa y{" "}
         <span className="text-amber-300">Testing</span> las prueba y le devuelve lo que falla hasta que todo pasa.
       </p>
+      <a
+        href="/preview/original/index.html"
+        target="_blank"
+        rel="noopener"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/5"
+      >
+        Ver la web original ↗
+      </a>
 
       <form onSubmit={submit} className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <label htmlFor="req" className="text-sm font-medium text-zinc-300">
@@ -104,8 +112,8 @@ export default function Home() {
           {runs === null && <li className="p-4 text-sm text-zinc-500">Cargando…</li>}
           {runs?.length === 0 && <li className="p-4 text-sm text-zinc-500">Aún no hay peticiones.</li>}
           {runs?.map((r) => (
-            <li key={r.id}>
-              <Link href={`/runs/${r.id}`} className="flex items-center gap-3 p-4 hover:bg-white/[0.03]">
+            <li key={r.id} className="flex items-center hover:bg-white/[0.03]">
+              <Link href={`/runs/${r.id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4">
                 <span className="min-w-0 flex-1 truncate">{r.request}</span>
                 <span className="font-mono text-xs text-zinc-500">
                   {r.passed}/{r.total}
@@ -114,6 +122,15 @@ export default function Home() {
                   {RUN_STATUS[r.status].label}
                 </span>
               </Link>
+              <a
+                href={`/preview/${r.id}/index.html`}
+                target="_blank"
+                rel="noopener"
+                title="Ver la web resultante a pantalla completa"
+                className="shrink-0 py-4 pr-4 text-xs text-zinc-400 hover:text-zinc-100"
+              >
+                Ver web ↗
+              </a>
             </li>
           ))}
         </ul>

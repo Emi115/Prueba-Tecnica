@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentId, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
 import { MAX_ATTEMPTS } from "@/lib/types";
+import { BASE_SITE } from "@/lib/base-site";
 import { AGENT_STATE, AGENTS, isActive, RUN_STATUS, TASK_STATUS, time } from "./ui";
 
 interface RunData {
@@ -118,6 +119,14 @@ export function RunDashboard({ id }: { id: string }) {
               {autoRun ? "Pausar" : "Reanudar"}
             </button>
           )}
+          <a
+            href={`/preview/${run.id}/index.html`}
+            target="_blank"
+            rel="noopener"
+            className="rounded-full bg-white/10 px-2.5 py-1 font-medium text-zinc-100 hover:bg-white/15"
+          >
+            {active ? "Ver cómo va ↗" : "Ver resultado ↗"}
+          </a>
         </div>
       </header>
 
@@ -350,63 +359,133 @@ function EventExtra({ e }: { e: AgentEvent }) {
   return null;
 }
 
+type PreviewMode = "after" | "before" | "compare" | "code";
+type Change = "new" | "modified" | "same";
+
+const MODES: { id: PreviewMode; label: string }[] = [
+  { id: "before", label: "Antes" },
+  { id: "after", label: "Después" },
+  { id: "compare", label: "Comparar" },
+  { id: "code", label: "Código" },
+];
+
+const CHANGE_BADGE: Record<Change, { label: string; cls: string } | null> = {
+  new: { label: "nueva", cls: "bg-emerald-500/15 text-emerald-300" },
+  modified: { label: "cambiada", cls: "bg-sky-500/15 text-sky-300" },
+  same: null,
+};
+
+/** Compara cada fichero de la ejecución con la web de partida. */
+function changeOf(f: SiteFile): Change {
+  const before = BASE_SITE[f.path];
+  if (before === undefined) return "new";
+  return before === f.content ? "same" : "modified";
+}
+
 function SitePreview({ runId, files, version }: { runId: string; files: SiteFile[]; version: number }) {
-  const pages = files.filter((f) => f.path.endsWith(".html")).map((f) => f.path);
+  const [mode, setMode] = useState<PreviewMode>("after");
   const [page, setPage] = useState("index.html");
-  const [view, setView] = useState<"web" | "code">("web");
   const [codeFile, setCodeFile] = useState("index.html");
+
+  const changes = new Map(files.map((f) => [f.path, changeOf(f)]));
+  const pages = files.filter((f) => f.path.endsWith(".html")).map((f) => f.path);
+  const tabs = mode === "code" ? files.map((f) => f.path) : pages;
+  const current = mode === "code" ? codeFile : page;
   const code = files.find((f) => f.path === codeFile);
+  const changedCount = [...changes.values()].filter((c) => c !== "same").length;
+
+  const frame = (src: string | null, label: string, emptyText: string) => (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500">{label}</p>
+      {src ? (
+        <iframe
+          key={`${src}-${version}`}
+          src={src}
+          sandbox=""
+          title={`${label}: ${page}`}
+          className="h-full min-h-[400px] w-full rounded-lg bg-white"
+        />
+      ) : (
+        <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-lg border border-dashed border-white/15 p-6 text-center text-sm text-zinc-500">
+          {emptyText}
+        </div>
+      )}
+    </div>
+  );
+
+  const beforeSrc = BASE_SITE[page] !== undefined ? `/preview/original/${page}` : null;
+  const afterSrc = `/preview/${runId}/${page}`;
+  const newPageText = `${page} no existía antes: es una página nueva creada por los agentes.`;
 
   return (
-    <div className="flex min-h-[480px] flex-col rounded-2xl border border-white/10 bg-white/[0.02]">
+    <div
+      className={`flex min-h-[480px] flex-col rounded-2xl border border-white/10 bg-white/[0.02] ${
+        mode === "compare" ? "lg:col-span-2" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-2">
-        <p className="mr-auto text-sm font-medium text-zinc-400">Web resultante</p>
-        <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
-          {(["web", "code"] as const).map((v) => (
+        <p className="mr-auto text-sm font-medium text-zinc-400">
+          Web <span className="text-zinc-600">·</span>{" "}
+          <span className="text-xs text-zinc-500">
+            {changedCount === 0 ? "sin cambios todavía" : `${changedCount} fichero(s) nuevos o cambiados`}
+          </span>
+        </p>
+        <div className="flex rounded-lg border border-white/10 p-0.5 text-xs" role="tablist">
+          {MODES.map((m) => (
             <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`rounded-md px-2.5 py-1 ${view === v ? "bg-white/10 text-zinc-100" : "text-zinc-400"}`}
+              key={m.id}
+              role="tab"
+              aria-selected={mode === m.id}
+              onClick={() => setMode(m.id)}
+              className={`rounded-md px-2.5 py-1 ${mode === m.id ? "bg-white/10 text-zinc-100" : "text-zinc-400"}`}
             >
-              {v === "web" ? "Vista" : "Código"}
+              {m.label}
             </button>
           ))}
         </div>
-        <a
-          href={`/preview/${runId}/${page}`}
-          target="_blank"
-          className="text-xs text-zinc-400 underline-offset-2 hover:underline"
-        >
-          Abrir ↗
-        </a>
+        {mode !== "code" && (
+          <span className="flex gap-3 text-xs text-zinc-400">
+            {beforeSrc && (
+              <a href={beforeSrc} target="_blank" rel="noopener" className="underline-offset-2 hover:underline">
+                Abrir antes ↗
+              </a>
+            )}
+            <a href={afterSrc} target="_blank" rel="noopener" className="underline-offset-2 hover:underline">
+              Abrir después ↗
+            </a>
+          </span>
+        )}
       </div>
+
       <div className="flex flex-wrap gap-1 px-3 pt-2">
-        {(view === "web" ? pages : files.map((f) => f.path)).map((p) => {
-          const current = view === "web" ? page : codeFile;
+        {tabs.map((p) => {
+          const badge = CHANGE_BADGE[changes.get(p) ?? "same"];
           return (
             <button
               key={p}
-              onClick={() => (view === "web" ? setPage(p) : setCodeFile(p))}
-              className={`rounded-md px-2 py-0.5 font-mono text-xs ${
+              onClick={() => (mode === "code" ? setCodeFile(p) : setPage(p))}
+              className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-xs ${
                 current === p ? "bg-white/10 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               {p}
+              {badge && <span className={`rounded px-1 font-sans text-[10px] ${badge.cls}`}>{badge.label}</span>}
             </button>
           );
         })}
       </div>
-      <div className="flex-1 p-3">
-        {view === "web" ? (
-          <iframe
-            key={`${page}-${version}`}
-            src={`/preview/${runId}/${page}`}
-            sandbox=""
-            title="Vista previa de la web"
-            className="h-full min-h-[400px] w-full rounded-lg bg-white"
-          />
-        ) : (
-          <pre className="h-full max-h-[440px] overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-zinc-300">
+
+      <div className="flex flex-1 gap-3 p-3">
+        {mode === "before" && frame(beforeSrc, "Antes", newPageText)}
+        {mode === "after" && frame(afterSrc, "Después", "")}
+        {mode === "compare" && (
+          <div className="flex flex-1 flex-col gap-3 md:flex-row">
+            {frame(beforeSrc, "Antes", newPageText)}
+            {frame(afterSrc, "Después", "")}
+          </div>
+        )}
+        {mode === "code" && (
+          <pre className="h-full max-h-[440px] w-full overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-zinc-300">
             {code?.content ?? "—"}
           </pre>
         )}
