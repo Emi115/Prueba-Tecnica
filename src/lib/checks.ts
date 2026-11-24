@@ -40,11 +40,19 @@ export function runChecks(checks: Check[], files: Record<string, string>): Check
         // En un .css no hay elementos que buscar: se comprueba que exista una regla con ese selector.
         if (file.endsWith(".css")) {
           const norm = (s: string) => s.replace(/\s+/g, " ").replace(/\s*([>+~,])\s*/g, "$1").trim().toLowerCase();
-          const target = norm(c.selector);
-          const selectors = cssSelectors(content).map(norm);
-          return selectors.includes(target)
+          // «footer, .nav a.active» es una lista: cada selector debe tener su regla (juntos o por separado),
+          // igual que las reglas del CSS se trocean por comas en cssSelectors.
+          const targets = c.selector.split(",").map(norm).filter(Boolean);
+          const selectors = new Set(cssSelectors(content).map(norm));
+          const missing = targets.filter((t) => !selectors.has(t));
+          return missing.length === 0
             ? result(true, `Hay una regla para «${c.selector}» en ${file}`)
-            : result(false, `No hay ninguna regla CSS para «${c.selector}» en ${file}`);
+            : result(
+                false,
+                targets.length > 1
+                  ? `No hay ninguna regla CSS para ${missing.map((m) => `«${m}»`).join(", ")} en ${file} (de «${c.selector}»)`
+                  : `No hay ninguna regla CSS para «${c.selector}» en ${file}`,
+              );
         }
         let n = 0;
         try {
