@@ -289,7 +289,7 @@ async function stepWork(run: Run) {
   // llamada por ronda para todas, en vez de una por tarea.
   const toDevelop = open.filter((t) => DEV_STATUSES.includes(t.status));
   const task = toDevelop[0];
-  if (!task) return stepTestBatch(run, open.filter((t) => t.status === "testing"));
+  if (!task) return stepTestBatch(run, open.filter((t) => t.status === "testing"), tasks);
 
   const label = `T${task.idx + 1} · ${task.title}`;
 
@@ -361,7 +361,7 @@ const DEV_STATUSES: Task["status"][] = ["pending", "developing", "changes_reques
  * Si una tarea ya tiene sus checks escritos y en la ronda anterior la revisión estaba aprobada (solo
  * fallaban checks), se vuelve a probar sin IA: los checks se ejecutan con Cheerio y la revisión se mantiene.
  */
-async function stepTestBatch(run: Run, batch: Task[]) {
+async function stepTestBatch(run: Run, batch: Task[], plan: Task[]) {
   const files = await loadFiles(run.id);
   const tags = batch.map((t) => `T${t.idx + 1}`).join(", ");
   const needsAi = batch.filter((t) => !(t.checks?.length && t.last_report?.review.approved));
@@ -375,7 +375,7 @@ async function stepTestBatch(run: Run, batch: Task[]) {
       : `Repitiendo las pruebas de ${tags} sin llamar a la IA (ya están escritas y la revisión estaba aprobada)…`,
   );
   const { results: aiResults, usage } = needsAi.length
-    ? await test(needsAi, files)
+    ? await test(needsAi, files, { request: run.request, plan })
     : { results: new Map<number, TaskTest>(), usage: null };
   if (needsAi.length && aiResults.size === 0) throw new Error("Testing no devolvió el resultado de ninguna tarea");
 

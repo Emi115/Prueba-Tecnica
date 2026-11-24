@@ -12,7 +12,9 @@ export const PlanSchema = z.object({
         description: z.string().describe("Qué debe hacer Develop, con ficheros concretos"),
         acceptance: z
           .array(z.string())
-          .describe("Criterios de aceptación verificables mirando el HTML/CSS resultante"),
+          .describe(
+            "Criterios de aceptación verificables mirando el HTML/CSS resultante; entre todas las tareas cubren cada cosa que pide el usuario",
+          ),
       }),
     )
     .describe(
@@ -31,6 +33,9 @@ Reglas:
 - Cada tarea debe poder hacerse y comprobarse sola, en orden.
 - Nombra los ficheros exactos que hay que crear o tocar (rutas relativas, p. ej. "contacto.html").
 - Los criterios de aceptación deben ser comprobables leyendo el HTML/CSS: ficheros que existen, textos visibles, elementos (form, input[type=email]...), enlaces entre páginas. Nada subjetivo.
+- No pierdas nada de la petición: cada cosa que el usuario pide explícitamente (cada producto, botón, opción, estilo o dato) debe aparecer en al menos un criterio. Antes de responder, repasa la petición frase a frase y comprueba que todo está cubierto.
+- Criterios concretos, sin escapatorias: nada de «X o algo relacionado» ni «si es posible». Si la petición es ambigua, elige una interpretación concreta y escríbela en el criterio (p. ej. «un desplegable con todos los productos» → «index.html tiene un <select> o un menú desplegable que lista todos los productos»).
+- Es una web estática (HTML + CSS, sin servidor ni imágenes subidas): traduce lo que no puede existir a algo visible y comprobable. «Comprar X» → un botón o enlace «Comprar» junto a X; un fondo o ilustración → CSS, emojis o SVG en línea que lo representen de verdad.
 - Mantén el estilo y la estructura de la web existente (misma cabecera, navegación, pie y styles.css).
 - Escribe en español.`;
 
