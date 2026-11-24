@@ -2,14 +2,14 @@ import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ApiError, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
-import { apiMessage, finishReason, rateLimitReason, serverErrorReason } from "./llm-errors";
+import { apiMessage, finishReason, hasZeroQuota, NO_PLAN_HINT, rateLimitReason, serverErrorReason } from "./llm-errors";
 import type { AiChoice } from "./types";
 
 /* ------------------------------------------------------------------
  * Cadena de modelos con respaldo
  *   1. Gemini   (GEMINI_MODEL, por defecto gemini-3.1-flash-lite)
  *   2. Groq     (solo si hay GROQ_API_KEY; GROQ_MODEL, por defecto openai/gpt-oss-120b)
- *   3. Mistral  (solo si hay MISTRAL_API_KEY; MISTRAL_MODEL, por defecto mistral-small-latest)
+ *   3. OpenRouter (solo si hay OPENROUTER_API_KEY; OPENROUTER_MODEL, por defecto un modelo gratuito «:free»)
  * Solo se pasa al siguiente si el fallo es temporal (saturado, sin respuesta, 429 o modelo no
  * disponible). Una clave inválida detiene la ejecución: reintentar con otro modelo la ocultaría.
  * ------------------------------------------------------------------ */
@@ -17,8 +17,10 @@ import type { AiChoice } from "./types";
 export const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MISTRAL_MODEL = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
-const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
+// Modelo gratuito («:free», sin tarjeta) que acepta salida con esquema JSON. La lista gratuita de OpenRouter
+// cambia a menudo: si este desaparece (404), se cambia con OPENROUTER_MODEL sin tocar código.
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "nvidia/nemotron-3.5-super-vl:free";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Sin clave (o con AGENTS_MOCK=1) los agentes usan respuestas simuladas deterministas. */
 // El valor de ejemplo de .env.example cuenta como "sin clave".
@@ -34,14 +36,15 @@ const optionalKey = (v: string | undefined) => {
   return k && !k.includes("ejemplo") ? k : undefined;
 };
 const groqKey = () => optionalKey(process.env.GROQ_API_KEY);
-const mistralKey = () => optionalKey(process.env.MISTRAL_API_KEY);
+const openrouterKey = () => optionalKey(process.env.OPENROUTER_API_KEY);
 
-type Provider = "gemini" | "groq" | "mistral";
+type Provider = "gemini" | "groq" | "openrouter";
+type CompatProvider = Exclude<Provider, "gemini">;
 
 /** Proveedores con API compatible con OpenAI (chat/completions). */
 const OPENAI_COMPAT = {
   groq: { name: "Groq", url: GROQ_URL, key: groqKey, env: "GROQ_API_KEY" },
-  mistral: { name: "Mistral", url: MISTRAL_URL, key: mistralKey, env: "MISTRAL_API_KEY" },
+  openrouter: { name: "OpenRouter", url: OPENROUTER_URL, key: openrouterKey, env: "OPENROUTER_API_KEY" },
 } as const;
 interface Slot {
   provider: Provider;
@@ -53,7 +56,7 @@ interface Slot {
 }
 
 /**
- * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s × 2 ≈ 170 s en el peor caso, por debajo
+ * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s + 45 s ≈ 180 s en el peor caso, por debajo
  * del lock (280 s) y del maxDuration de Vercel (300 s). Además, cada slot recorta su timeout
  * al tiempo que quede del presupuesto, así nunca se corta la función a medias.
  */
@@ -66,19 +69,20 @@ const STEP_BUDGET_MS = 230_000;
 const aiContext = new AsyncLocalStorage<AiChoice>();
 export const withAi = <T>(choice: AiChoice, fn: () => Promise<T>) => aiContext.run(choice, fn);
 
-/** IAs que se pueden elegir ahora mismo (Gemini siempre; Groq y Mistral solo si tienen clave). */
+/** IAs que se pueden elegir ahora mismo (Gemini siempre; Groq y OpenRouter solo si tienen clave). */
 export function availableAis(): { id: Exclude<AiChoice, "auto">; name: string; model: string }[] {
   return [
     { id: "gemini" as const, name: "Gemini", model: MODEL },
     ...(groqKey() ? [{ id: "groq" as const, name: "Groq", model: GROQ_MODEL }] : []),
-    ...(mistralKey() ? [{ id: "mistral" as const, name: "Mistral", model: MISTRAL_MODEL }] : []),
+    ...(openrouterKey() ? [{ id: "openrouter" as const, name: "OpenRouter", model: OPENROUTER_MODEL }] : []),
   ];
 }
 
 export function modelChain(choice: AiChoice = aiContext.getStore() ?? "auto"): Slot[] {
   const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 50_000, attempts: 2 }];
   if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 35_000, attempts: 1 });
-  if (mistralKey()) chain.push({ provider: "mistral", model: MISTRAL_MODEL, timeoutMs: 35_000, attempts: 1 });
+  // Los modelos gratuitos de OpenRouter son más lentos: algo más de margen.
+  if (openrouterKey()) chain.push({ provider: "openrouter", model: OPENROUTER_MODEL, timeoutMs: 45_000, attempts: 1 });
   // IA elegida a mano: solo esa, sin respaldo y con más margen de tiempo. Si ya no tiene clave, automático.
   const only = chain.find((s) => s.provider === choice);
   return only ? [{ ...only, timeoutMs: 50_000 }] : chain;
@@ -98,7 +102,7 @@ export class RateLimitError extends Error {
         (detail ? ` (${detail})` : "") +
         (chosen
           ? ". Se reintentará solo; si sigue igual, crea la petición con otra IA o con «Automático»."
-          : ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consolas de Groq y Mistral."),
+          : ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consolas de Groq y OpenRouter."),
     );
     this.name = "RateLimitError";
   }
@@ -107,13 +111,17 @@ export class RateLimitError extends Error {
 /** Clave inválida o sin permisos: reintentar no sirve, el motor detiene la ejecución al momento. */
 export class ConfigError extends Error {
   readonly variable: string;
-  constructor(detail: string, variable = "GEMINI_API_KEY") {
+  /** Resumen para la tarjeta del Orquestador («Detenido: …»). */
+  readonly short: string;
+  constructor(detail: string, variable = "GEMINI_API_KEY", custom?: { message: string; short: string }) {
     super(
-      `${variable} no es válida (${detail}). Revisa la variable en el servidor (Vercel → Settings → ` +
-        "Environment Variables): solo la clave, sin comillas ni espacios, y vuelve a desplegar.",
+      custom?.message ??
+        `${variable} no es válida (${detail}). Revisa la variable en el servidor (Vercel → Settings → ` +
+          "Environment Variables): solo la clave, sin comillas ni espacios, y vuelve a desplegar.",
     );
     this.name = "ConfigError";
     this.variable = variable;
+    this.short = custom?.short ?? `${variable} no válida`;
   }
 }
 
@@ -126,10 +134,13 @@ export class GeminiBusyError extends Error {
 }
 
 /** Fallo temporal de un slot concreto: se pasa al siguiente modelo de la cadena. */
+/** «no_plan»: la cuenta del proveedor tiene límite 0 (plan no activado); no es temporal. */
+type FailureKind = "rate_limit" | "busy" | "no_plan";
+
 class SlotUnavailable extends Error {
-  readonly kind: "rate_limit" | "busy";
+  readonly kind: FailureKind;
   readonly short: string;
-  constructor(kind: "rate_limit" | "busy", short: string) {
+  constructor(kind: FailureKind, short: string) {
     super(short);
     this.kind = kind;
     this.short = short;
@@ -220,14 +231,14 @@ async function callGemini(model: string, attempts: number, o: CallOpts): Promise
   };
 }
 
-/* ---------------------- Groq y Mistral ---------------------- */
+/* ---------------------- Groq y OpenRouter ---------------------- */
 
 /**
- * Groq y Mistral exponen una API compatible con OpenAI (chat/completions): basta con fetch,
+ * Groq y OpenRouter exponen una API compatible con OpenAI (chat/completions): basta con fetch,
  * sin librerías, y la misma función sirve para los dos.
  * El plan gratuito de Groq limita los tokens por minuto, así que ahí la salida se acota.
  */
-async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: CallOpts): Promise<RawResult> {
+async function callOpenAICompat(provider: CompatProvider, model: string, o: CallOpts): Promise<RawResult> {
   const p = OPENAI_COMPAT[provider];
   const body: Record<string, unknown> = {
     model,
@@ -246,6 +257,8 @@ async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: 
     if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
   } else {
     body.max_tokens = o.maxTokens;
+    // Solo proveedores de OpenRouter que respeten el esquema JSON (si no, ignorarían response_format).
+    body.provider = { require_parameters: true };
   }
 
   let res: Response;
@@ -264,7 +277,10 @@ async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: 
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);
     if (res.status === 401 || res.status === 403) throw new ConfigError(`HTTP ${res.status}`, p.env);
-    if (res.status === 429) throw new SlotUnavailable("rate_limit", rateLimitReason(detail));
+    if (res.status === 429) {
+      if (hasZeroQuota(res.headers)) throw new SlotUnavailable("no_plan", `429 · ${NO_PLAN_HINT[p.name]}`);
+      throw new SlotUnavailable("rate_limit", rateLimitReason(detail));
+    }
     if (res.status === 413) throw new SlotUnavailable("busy", "petición demasiado grande para el plan gratuito (413)");
     if (res.status === 404) throw new SlotUnavailable("busy", "modelo no disponible (404)");
     if (res.status >= 500) throw new SlotUnavailable("busy", serverErrorReason(res.status, detail));
@@ -307,7 +323,7 @@ export async function structured<S extends z.ZodType>(opts: {
   maxTokens?: number;
 }): Promise<{ data: z.infer<S>; usage: LlmUsage }> {
   const deadline = Date.now() + STEP_BUDGET_MS;
-  const failures: { slot: Slot; kind: "rate_limit" | "busy"; short: string }[] = [];
+  const failures: { slot: Slot; kind: FailureKind; short: string }[] = [];
 
   const chain = modelChain();
   const chosen = (aiContext.getStore() ?? "auto") !== "auto" && chain.length === 1;
@@ -325,6 +341,15 @@ export async function structured<S extends z.ZodType>(opts: {
           : await callOpenAICompat(slot.provider, slot.model, call);
     } catch (err) {
       if (err instanceof SlotUnavailable) {
+        // Plan sin peticiones en la IA elegida a mano: reintentar no sirve, se detiene con instrucciones.
+        // En automático se salta esa IA y se sigue con la siguiente.
+        if (err.kind === "no_plan" && chosen) {
+          const p = OPENAI_COMPAT[slot.provider as CompatProvider];
+          throw new ConfigError(err.short, p.env, {
+            message: `${p.name} no puede responder: ${err.short.replace(/^429 · /, "")}. Mientras tanto, crea la petición con otra IA o con «Automático».`,
+            short: `${p.name} sin plan activo`,
+          });
+        }
         failures.push({ slot, kind: err.kind, short: err.short });
         continue;
       }

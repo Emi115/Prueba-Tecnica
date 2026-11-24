@@ -22,16 +22,16 @@ const short = (s: string, max = 90) => {
 
 /**
  * 429: distingue la causa y, si la API lo dice, cuándo reintentar.
- * Ojo: no todo 429 es «has gastado tu cuota». En los planes gratuitos (p. ej. Mistral «Experiment»)
- * también llega cuando la capacidad compartida del proveedor está llena o al pasar de 1 petición/s.
+ * Ojo: no todo 429 es «has gastado tu cuota». En los planes gratuitos también llega cuando la capacidad
+ * compartida del proveedor está llena (p. ej. OpenRouter «temporarily rate-limited upstream») o por límite por segundo.
  */
 export function rateLimitReason(raw: string | undefined): string {
   const t = raw ?? "";
-  const scope = /capacity|overloaded|tier.*exceeded/i.test(t)
+  const scope = /capacity|overloaded|tier.*exceeded|upstream/i.test(t)
     ? "capacidad gratuita del proveedor llena ahora mismo (no es tu cuota)"
-    : /per ?day|PerDay|\bRPD\b|\bTPD\b|daily/i.test(t)
+    : /per[ -]?day|PerDay|\bRPD\b|\bTPD\b|daily/i.test(t)
       ? "cuota diaria agotada"
-      : /per ?minute|PerMinute|\bRPM\b|\bTPM\b/i.test(t)
+      : /per[ -]?min|PerMinute|\bRPM\b|\bTPM\b/i.test(t)
         ? "límite por minuto"
         : /per ?second|\bRPS\b|requests rate limit/i.test(t)
           ? "límite de peticiones por segundo"
@@ -43,6 +43,25 @@ export function rateLimitReason(raw: string | undefined): string {
   const said = scope === "límite de peticiones" && msg ? ` («${short(msg, 80)}»)` : "";
   return `429 · ${scope}${wait}${said}`;
 }
+
+/**
+ * 429 con límite 0 en las cabeceras (p. ej. Mistral `x-ratelimit-limit-req-minute: 0`): la clave es válida
+ * pero la cuenta no tiene ninguna petición permitida, normalmente porque el plan gratuito no está activado.
+ * No es temporal: reintentar no sirve.
+ */
+export function hasZeroQuota(headers: Headers): boolean {
+  for (const [name, value] of headers) {
+    if (/ratelimit-limit/i.test(name) && value.trim() === "0") return true;
+  }
+  return false;
+}
+
+/** Qué hacer cuando la cuenta del proveedor tiene límite 0. */
+export const NO_PLAN_HINT: Record<string, string> = {
+  OpenRouter:
+    "tu cuenta de OpenRouter no tiene peticiones disponibles: revisa tu clave y tus límites en openrouter.ai/settings",
+  Groq: "tu cuenta de Groq tiene un límite de 0 peticiones: revisa tu plan en console.groq.com",
+};
 
 /** 5xx: el código y, traducido si es el caso típico, el motivo que da la API. */
 export function serverErrorReason(status: number, raw: string | undefined): string {

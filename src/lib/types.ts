@@ -39,7 +39,8 @@ export interface TestReport {
 
 /** Qué IA respondió una llamada (y cuáles fallaron antes, si respondió un respaldo). */
 export interface ModelInfo {
-  provider: "gemini" | "groq" | "mistral";
+  /** «mistral» solo aparece en peticiones antiguas, de cuando era el tercer respaldo. */
+  provider: "gemini" | "groq" | "openrouter" | "mistral";
   model: string;
   skipped?: string[];
 }
@@ -55,8 +56,8 @@ export interface Attempt extends TestReport {
 }
 
 /** IA elegida al crear la petición: «auto» usa la cadena con respaldo; las demás, solo esa IA. */
-export type AiChoice = "auto" | "gemini" | "groq" | "mistral";
-export const AI_CHOICES: AiChoice[] = ["auto", "gemini", "groq", "mistral"];
+export type AiChoice = "auto" | "gemini" | "groq" | "openrouter";
+export const AI_CHOICES: AiChoice[] = ["auto", "gemini", "groq", "openrouter"];
 
 export interface Run {
   id: string;

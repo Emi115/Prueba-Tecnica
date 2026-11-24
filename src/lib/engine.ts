@@ -210,7 +210,7 @@ export async function step(runId: string): Promise<StepResult> {
       // Clave inválida: no tiene sentido reintentar.
       await log(runId, null, "system", "error", `${err.message} Ejecución detenida.`);
       await q(`UPDATE runs SET status = 'failed', summary = $2 WHERE id = $1`, [runId, err.message]);
-      await setAgents(runId, { orchestrator: { state: "error", detail: `Detenido: ${err.variable} no válida` } });
+      await setAgents(runId, { orchestrator: { state: "error", detail: `Detenido: ${err.short}` } });
       return { status: "finished" };
     }
     const message = err instanceof Error ? err.message : String(err);

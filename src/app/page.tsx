@@ -15,10 +15,10 @@ interface AiInfo {
 
 /** Mismos colores que las etiquetas de IA del panel. */
 const AI_DOT: Record<AiChoice, string> = {
-  auto: "bg-gradient-to-br from-sky-500 via-orange-500 to-rose-500",
+  auto: "bg-gradient-to-br from-sky-500 via-orange-500 to-indigo-500",
   gemini: "bg-sky-500",
   groq: "bg-orange-500",
-  mistral: "bg-rose-500",
+  openrouter: "bg-indigo-500",
 };
 
 const shortModel = (m: string) => m.split(":").pop()!.split("/").pop()!.replace(/^gemini-/, "");

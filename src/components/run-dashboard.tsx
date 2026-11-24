@@ -386,6 +386,8 @@ function modelOf(e: AgentEvent | undefined): ModelInfo | null {
 const PROVIDER_BADGE: Record<ModelInfo["provider"], { name: string; cls: string }> = {
   gemini: { name: "Gemini", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300" },
   groq: { name: "Groq", cls: "bg-orange-500/15 text-orange-700 dark:text-orange-300" },
+  openrouter: { name: "OpenRouter", cls: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300" },
+  // Peticiones antiguas, de cuando Mistral era el tercer respaldo.
   mistral: { name: "Mistral", cls: "bg-rose-500/15 text-rose-700 dark:text-rose-300" },
 };
 
