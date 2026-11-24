@@ -18,7 +18,11 @@ export async function GET(_req: Request, ctx: RouteContext<"/preview/[runId]/[[.
     runId === "original"
       ? BASE_SITE[file]
       : (
-          await q<{ content: string }>(`SELECT content FROM files WHERE run_id = $1 AND path = $2`, [runId, file])
+          // Sin distinguir mayúsculas, igual que Testing: «Noticias.html» se sirve también como «noticias.html».
+          await q<{ content: string }>(`SELECT content FROM files WHERE run_id = $1 AND lower(path) = $2`, [
+            runId,
+            file,
+          ])
         )[0]?.content;
   if (content === undefined) return new Response(`404 · ${file} no existe (todavía)`, { status: 404 });
   const ext = file.split(".").pop() ?? "";

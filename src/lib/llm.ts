@@ -1,6 +1,7 @@
 import "server-only";
 import { ApiError, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { apiMessage, finishReason, rateLimitReason, serverErrorReason } from "./llm-errors";
 
 /* ------------------------------------------------------------------
  * Cadena de modelos con respaldo
@@ -182,19 +183,19 @@ async function callGemini(model: string, attempts: number, o: CallOpts): Promise
     });
   } catch (err) {
     if (err instanceof ApiError) {
-      if (err.status === 429) throw new SlotUnavailable("rate_limit", "429");
+      if (err.status === 429) throw new SlotUnavailable("rate_limit", rateLimitReason(err.message));
       if (err.status === 401 || err.status === 403) throw new ConfigError(`HTTP ${err.status}`);
       if (err.status === 400 && /api key/i.test(err.message)) throw new ConfigError("Google responde «API key not valid»");
       if (err.status === 404) throw new SlotUnavailable("busy", "modelo no disponible (404)");
-      if (err.status >= 500) throw new SlotUnavailable("busy", `saturado (HTTP ${err.status})`);
+      if (err.status >= 500) throw new SlotUnavailable("busy", serverErrorReason(err.status, err.message));
     }
     if (isTimeout(err)) throw new SlotUnavailable("busy", `sin respuesta en ${Math.round(o.timeoutMs / 1000)} s`);
     throw err;
   }
 
+  // Respuesta cortada o bloqueada: el mismo modelo probablemente repetiría, así que se pasa al siguiente.
   const finish = response.candidates?.[0]?.finishReason;
-  if (finish === "MAX_TOKENS") throw new Error("La respuesta de Gemini se cortó por longitud máxima");
-  if (finish && finish !== "STOP") throw new Error(`Gemini terminó sin respuesta válida (${finish})`);
+  if (finish && finish !== "STOP") throw new SlotUnavailable("busy", finishReason(finish));
   return {
     text: response.text ?? "",
     input_tokens: response.usageMetadata?.promptTokenCount ?? 0,
@@ -246,12 +247,13 @@ async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: 
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);
     if (res.status === 401 || res.status === 403) throw new ConfigError(`HTTP ${res.status}`, p.env);
-    if (res.status === 429) throw new SlotUnavailable("rate_limit", "429");
+    if (res.status === 429) throw new SlotUnavailable("rate_limit", rateLimitReason(detail));
     if (res.status === 413) throw new SlotUnavailable("busy", "petición demasiado grande para el plan gratuito (413)");
     if (res.status === 404) throw new SlotUnavailable("busy", "modelo no disponible (404)");
-    if (res.status >= 500) throw new SlotUnavailable("busy", `saturado (HTTP ${res.status})`);
+    if (res.status >= 500) throw new SlotUnavailable("busy", serverErrorReason(res.status, detail));
     // 400 por esquema/JSON (p. ej. json_validate_failed): mejor dar paso a reintentar que bloquear.
-    throw new SlotUnavailable("busy", `respuesta no válida (HTTP ${res.status}${detail ? `: ${detail.slice(0, 120)}` : ""})`);
+    const msg = apiMessage(detail);
+    throw new SlotUnavailable("busy", `respuesta no válida (HTTP ${res.status}${msg ? `: ${msg.slice(0, 120)}` : ""})`);
   }
 
   const data = (await res.json()) as {
@@ -259,7 +261,7 @@ async function callOpenAICompat(provider: "groq" | "mistral", model: string, o: 
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const choice = data.choices?.[0];
-  if (choice?.finish_reason === "length") throw new SlotUnavailable("busy", "respuesta cortada por longitud");
+  if (choice?.finish_reason === "length") throw new SlotUnavailable("busy", finishReason("MAX_TOKENS"));
   return {
     text: choice?.message?.content ?? "",
     input_tokens: data.usage?.prompt_tokens ?? 0,
@@ -310,15 +312,21 @@ export async function structured<S extends z.ZodType>(opts: {
       throw err;
     }
 
+    // JSON roto o sin el formato pedido: también se pasa al siguiente modelo (reintentar con el mismo
+    // suele repetir el fallo), y el motivo queda anotado para el panel.
     let json: unknown;
     try {
       json = JSON.parse(raw.text);
     } catch {
-      throw new Error(`${label(slot)} no devolvió JSON válido`);
+      failures.push({ slot, kind: "busy", short: raw.text.trim() ? "devolvió JSON no válido" : "respuesta vacía" });
+      continue;
     }
     const parsed = opts.schema.safeParse(json);
     if (!parsed.success) {
-      throw new Error(`El JSON de ${label(slot)} no cumple el esquema: ${parsed.error.message.slice(0, 200)}`);
+      const issue = parsed.error.issues[0];
+      const where = issue?.path.length ? ` en «${issue.path.join(".")}»` : "";
+      failures.push({ slot, kind: "busy", short: `JSON sin el formato pedido${where}` });
+      continue;
     }
 
     return {
@@ -336,6 +344,6 @@ export async function structured<S extends z.ZodType>(opts: {
   const summary = failures.map((f) => `${label(f.slot)}: ${f.short}`).join(" · ");
   if (failures.length && failures.every((f) => f.kind === "rate_limit")) throw new RateLimitError(summary);
   throw new GeminiBusyError(
-    `Ninguna IA ha respondido ahora mismo (${summary || "sin tiempo para reintentar"}). Es temporal.`,
+    `Ninguna IA ha dado una respuesta válida ahora mismo (${summary || "sin tiempo para reintentar"}). Es temporal.`,
   );
 }

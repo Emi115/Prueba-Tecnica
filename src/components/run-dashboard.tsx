@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentId, ModelInfo, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
 import { MAX_ATTEMPTS } from "@/lib/types";
 import { BASE_SITE } from "@/lib/base-site";
+import { splitSkipped } from "@/lib/llm-errors";
 import { AGENT_STATE, AGENTS, isActive, RUN_STATUS, TASK_STATUS, time } from "./ui";
 
 interface RunData {
@@ -296,6 +297,7 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
                 Develop
                 <ModelBadge info={h.dev_model} />: {h.dev_summary}
               </p>
+              <FallbackNote info={h.dev_model} />
               {h.files.length > 0 && <p className="font-mono text-[11px] text-subtle">✎ {h.files.join(", ")}</p>}
               <ul className="mt-2 space-y-1.5">
                 {h.checks.map((c, i) => (
@@ -314,6 +316,7 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
                 Revisión de código: {h.review.approved ? "aprobada" : "rechazada"} · Testing
                 <ModelBadge info={h.test_model} />
               </p>
+              <FallbackNote info={h.test_model} />
               {h.review.issues.length > 0 && (
                 <ul className="mt-1 list-disc pl-5 text-sm text-red-700 dark:text-red-300">
                   {h.review.issues.map((i) => (
@@ -356,6 +359,7 @@ function ActivityLog({ events, tasks }: { events: AgentEvent[]; tasks: Task[] })
                 <ModelBadge info={modelOf(e)} />
                 <span className={`ml-2 ${e.type === "thinking" ? "italic text-subtle" : "text-fg"}`}>{e.message}</span>
                 <EventExtra e={e} />
+                <FallbackNote info={modelOf(e)} />
               </span>
             </li>
           );
@@ -396,6 +400,31 @@ function ModelBadge({ info }: { info: ModelInfo | null | undefined }) {
       {name}
       {backup && <span className="rounded-full bg-amber-400/20 px-1 text-amber-200">respaldo</span>}
     </span>
+  );
+}
+
+/** Por qué no respondió cada modelo anterior de la cadena (429, saturado, sin respuesta, JSON no válido…). */
+function FallbackNote({ info }: { info: ModelInfo | null | undefined }) {
+  if (!info?.skipped?.length) return null;
+  return (
+    <ul className="mt-1 space-y-0.5 border-l-2 border-amber-500/40 pl-2 text-[11px] text-subtle">
+      {info.skipped.map((s, i) => {
+        const { model, reason } = splitSkipped(s);
+        return (
+          <li key={i}>
+            <span className="font-mono">{model.replace(/^gemini-/, "")}</span> no respondió
+            {reason && (
+              <>
+                : <span className="text-amber-800 dark:text-amber-300">{reason}</span>
+              </>
+            )}
+          </li>
+        );
+      })}
+      <li>
+        → respondió <span className="font-mono">{info.model.split("/").pop()!.replace(/^gemini-/, "")}</span>
+      </li>
+    </ul>
   );
 }
 

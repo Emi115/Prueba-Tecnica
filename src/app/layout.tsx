@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { InlineScript } from "@/components/inline-script";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
@@ -23,7 +24,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        <InlineScript html={THEME_SCRIPT} />
       </head>
       <body className="min-h-full font-sans">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/75 backdrop-blur-md">

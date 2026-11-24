@@ -9,8 +9,9 @@ const CheckSchema = z.object({
     .enum(["file_exists", "text_contains", "selector_exists", "link_to", "no_broken_links", "labels_for_inputs"])
     .describe(
       "file_exists: el fichero existe. text_contains: el texto visible de `file` contiene `value`. " +
-        "selector_exists: en un .html, el selector CSS `selector` aparece en `file` al menos `value` veces (value numérico, '1' por defecto); en un .css, existe una regla con exactamente ese selector. " +
-        "link_to: `file` tiene un <a href> a la página `value`. no_broken_links: todos los enlaces locales de `file` apuntan a ficheros existentes. labels_for_inputs: cada campo de formulario de `file` tiene su <label>.",
+        "selector_exists: en un .html, el selector CSS `selector` aparece en `file` al menos `value` veces (value numérico, '1' por defecto; :hover, ::before y similares se ignoran porque en HTML estático no existen); en un .css, existe una regla para el selector (con una lista separada por comas, una regla para cada uno). " +
+        "link_to: `file` tiene un <a href> a la página `value`. no_broken_links: todos los enlaces locales de `file` apuntan a ficheros existentes. labels_for_inputs: cada campo de formulario de `file` tiene su <label>. " +
+        "text_contains en un .css ignora espacios y mayúsculas ('color: #FFF' = 'color:#fff'), pero no equivalencias de color (#0ff ≠ cyan): para comprobar un color, usa el valor exacto que pide el criterio.",
     ),
   file: z.string().describe("Fichero sobre el que se comprueba"),
   selector: z.string().describe("Selector CSS (solo selector_exists; si no aplica, cadena vacía)"),

@@ -1,21 +1,100 @@
-import { load } from "cheerio";
+import { load, type CheerioAPI } from "cheerio";
 import type { Check, CheckResult } from "./types";
 
 /**
  * Ejecuta de forma determinista las comprobaciones que escribe el agente Testing.
  * El LLM decide QUÉ comprobar; este código decide si pasa o no (sin alucinaciones).
+ *
+ * Regla de diseño: una comprobación solo debe fallar si la web está mal de verdad. Si falla por
+ * cómo está escrita (espacios, comillas, mayúsculas, pseudoclases…), Develop no puede arreglarla y la
+ * tarea acaba bloqueada. Por eso todo se normaliza antes de comparar.
  */
-const normalize = (href: string) =>
-  href.trim().replace(/^\.\//, "").replace(/^\//, "").split(/[?#]/)[0].toLowerCase();
 
-const isExternal = (href: string) =>
-  /^(https?:|mailto:|tel:|#|javascript:|data:)/i.test(href.trim()) || href.trim() === "";
+/** Ruta local comparable: sin ./ ni / iniciales, sin ?query ni #ancla, decodificada y en minúsculas. */
+const normalize = (href: string) => {
+  let h = href.trim().split(/[?#]/)[0];
+  try {
+    h = decodeURIComponent(h);
+  } catch {}
+  return h.replace(/^(\.\/)+/, "").replace(/^\/+/, "").toLowerCase();
+};
+
+/** «noticias/» o «/» apuntan al index.html de esa carpeta. */
+const resolvePage = (h: string) => (h === "" || h.endsWith("/") ? `${h}index.html` : h);
+
+/** Cualquier esquema (https:, mailto:, tel:, data:…), URLs que empiezan por // y anclas no son ficheros locales. */
+const isExternal = (href: string) => {
+  const h = href.trim();
+  return h === "" || h.startsWith("#") || h.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(h);
+};
+
+/** Texto comparable: minúsculas, comillas tipográficas unificadas y espacios colapsados. */
+const normText = (s: string) =>
+  s
+    .normalize("NFC")
+    .replace(/[‘’´`]/g, "'")
+    .replace(/[“”«»]/g, '"')
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .trim();
+
+/** CSS comparable: sin comentarios ni espacios alrededor de : ; , { } ( ) > + ~ («color: red» = «color:red»). */
+const normCss = (s: string) =>
+  normText(s.replace(/\/\*[\s\S]*?\*\//g, ""))
+    .replace(/\s*([:;,{}()>+~])\s*/g, "$1")
+    .replace(/;}/g, "}")
+    .replace(/;$/, "");
+
+/** Selector comparable dentro de un .css: espacios, comillas y «::before» = «:before». */
+const normSelector = (s: string) =>
+  s
+    .replace(/\s+/g, " ")
+    .replace(/\s*([>+~])\s*/g, "$1")
+    .replace(/'/g, '"')
+    .replace(/::(before|after|first-line|first-letter)\b/gi, ":$1")
+    .trim()
+    .toLowerCase();
+
+/**
+ * Pseudoclases y pseudoelementos que dependen del usuario o del navegador (:hover, ::before…):
+ * en un HTML estático no hay nada que contar, así que se quitan y se comprueba el elemento base.
+ */
+const DYNAMIC_PSEUDO =
+  /::?(hover|focus|focus-visible|focus-within|active|visited|link|any-link|target|checked|disabled|enabled|before|after|placeholder|selection|marker|first-line|first-letter)\b/gi;
+const staticSelector = (s: string) =>
+  s
+    .split(",")
+    .map((p) => p.replace(DYNAMIC_PSEUDO, "").trim() || "*")
+    .join(", ");
+
+const BLOCK_TAGS =
+  "address,article,aside,blockquote,dd,div,dl,dt,fieldset,figcaption,figure,footer,form,h1,h2,h3,h4,h5,h6,header,hr,li,main,nav,ol,p,pre,section,table,td,th,tr,ul,label,button,option";
+const TEXT_ATTRS = ["alt", "placeholder", "aria-label", "title", "value"];
+
+/** Texto que ve el usuario: <title>, cuerpo (separando bloques) y atributos visibles (alt, placeholder…). */
+function visibleText($: CheerioAPI) {
+  const title = $("title").text();
+  const attrs = $(TEXT_ATTRS.map((a) => `[${a}]`).join(","))
+    .map((_, el) => TEXT_ATTRS.map((a) => $(el).attr(a) ?? "").join(" "))
+    .get()
+    .join(" ");
+  $("script, style, noscript, template, head").remove();
+  $("br").replaceWith(" ");
+  // Sin esto, «<h1>Horario</h1><p>Lunes</p>» se leería «HorarioLunes».
+  $(BLOCK_TAGS).each((_, el) => {
+    $(el).prepend(" ").append(" ");
+  });
+  return `${title} ${$.root().text()} ${attrs}`;
+}
 
 export function runChecks(checks: Check[], files: Record<string, string>): CheckResult[] {
+  // Búsqueda de ficheros sin distinguir mayúsculas: «Noticias.html» = «noticias.html».
+  const byName = new Map(Object.entries(files).map(([path, content]) => [normalize(path), content]));
+
   return checks.map((c) => {
     const result = (passed: boolean, detail: string): CheckResult => ({ ...c, passed, detail });
     const file = normalize(c.file);
-    const content = files[file];
+    const content = byName.get(file);
 
     if (c.type === "file_exists") {
       return content !== undefined
@@ -24,26 +103,26 @@ export function runChecks(checks: Check[], files: Record<string, string>): Check
     }
     if (content === undefined) return result(false, `No existe el fichero ${file}`);
 
+    const isCss = file.endsWith(".css");
+    const isHtml = /\.html?$/.test(file);
     const $ = load(content);
 
     switch (c.type) {
       case "text_contains": {
-        const haystack = (file.endsWith(".html") ? $("body").text() || $.text() : content)
-          .replace(/\s+/g, " ")
-          .toLowerCase();
-        const needle = c.value.replace(/\s+/g, " ").toLowerCase().trim();
+        const [haystack, needle] = isCss
+          ? [normCss(content), normCss(c.value)]
+          : [normText(isHtml ? visibleText($) : content), normText(c.value)];
         return haystack.includes(needle)
           ? result(true, `Encontrado «${c.value}»`)
           : result(false, `No aparece el texto «${c.value}» en ${file}`);
       }
       case "selector_exists": {
         // En un .css no hay elementos que buscar: se comprueba que exista una regla con ese selector.
-        if (file.endsWith(".css")) {
-          const norm = (s: string) => s.replace(/\s+/g, " ").replace(/\s*([>+~,])\s*/g, "$1").trim().toLowerCase();
+        if (isCss) {
           // «footer, .nav a.active» es una lista: cada selector debe tener su regla (juntos o por separado),
           // igual que las reglas del CSS se trocean por comas en cssSelectors.
-          const targets = c.selector.split(",").map(norm).filter(Boolean);
-          const selectors = new Set(cssSelectors(content).map(norm));
+          const targets = c.selector.split(",").map(normSelector).filter(Boolean);
+          const selectors = new Set(cssSelectors(content).map(normSelector));
           const missing = targets.filter((t) => !selectors.has(t));
           return missing.length === 0
             ? result(true, `Hay una regla para «${c.selector}» en ${file}`)
@@ -54,46 +133,53 @@ export function runChecks(checks: Check[], files: Record<string, string>): Check
                   : `No hay ninguna regla CSS para «${c.selector}» en ${file}`,
               );
         }
+        const selector = staticSelector(c.selector);
         let n = 0;
         try {
-          n = $(c.selector).length;
+          n = $(selector).length;
         } catch {
           return result(false, `Selector CSS no válido: ${c.selector}`);
         }
         const min = Math.max(1, Number.parseInt(c.value, 10) || 1);
+        const shown = selector === c.selector ? `«${c.selector}»` : `«${c.selector}» (como «${selector}»)`;
         return n >= min
-          ? result(true, `${n} elemento(s) para «${c.selector}»`)
-          : result(false, `«${c.selector}» encontrado ${n} vez/veces en ${file} (mínimo ${min})`);
+          ? result(true, `${n} elemento(s) para ${shown}`)
+          : result(false, `${shown} encontrado ${n} vez/veces en ${file} (mínimo ${min})`);
       }
       case "link_to": {
-        const target = normalize(c.value);
+        const target = resolvePage(normalize(c.value));
         // Cuenta enlaces <a>, hojas de estilo <link href> y scripts <script src>:
         // «index.html enlaza a styles.css» se cumple con <link rel="stylesheet" href="styles.css">.
         const hrefs = $("a[href], link[href], script[src]")
-          .map((_, el) => normalize($(el).attr("href") ?? $(el).attr("src") ?? ""))
-          .get();
-        return hrefs.includes(target)
+          .map((_, el) => $(el).attr("href") ?? $(el).attr("src") ?? "")
+          .get()
+          .filter((h) => !isExternal(h))
+          .map((h) => resolvePage(normalize(h)));
+        // «contacto» como destino también vale para «contacto.html».
+        return hrefs.some((h) => h === target || h === `${target}.html`)
           ? result(true, `${file} enlaza a ${target}`)
           : result(false, `${file} no tiene ningún enlace a ${target}`);
       }
       case "no_broken_links": {
-        const broken = $("a[href], link[href], script[src], img[src]")
+        const broken = $("a[href], link[href], script[src], img[src], source[src]")
           .map((_, el) => $(el).attr("href") ?? $(el).attr("src") ?? "")
           .get()
           .filter((h) => !isExternal(h))
-          .map(normalize)
-          .filter((h) => h && files[h] === undefined);
+          .map((h) => resolvePage(normalize(h)))
+          .filter((h) => !byName.has(h));
         return broken.length === 0
           ? result(true, `Sin enlaces rotos en ${file}`)
           : result(false, `Enlaces rotos en ${file}: ${[...new Set(broken)].join(", ")}`);
       }
       case "labels_for_inputs": {
-        const unlabeled = $("input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select")
+        const forIds = new Set($("label[for]").map((_, l) => $(l).attr("for")).get());
+        const unlabeled = $("input, textarea, select")
           .toArray()
+          .filter((el) => !/^(hidden|submit|button|reset|image)$/i.test($(el).attr("type") ?? ""))
           .filter((el) => {
             const id = $(el).attr("id");
             const wrapped = $(el).closest("label").length > 0;
-            return !wrapped && !(id && $(`label[for="${id}"]`).length) && !$(el).attr("aria-label");
+            return !wrapped && !(id && forIds.has(id)) && !$(el).attr("aria-label") && !$(el).attr("aria-labelledby");
           })
           .map((el) => `<${el.tagName} name="${$(el).attr("name") ?? "?"}">`);
         return unlabeled.length === 0
