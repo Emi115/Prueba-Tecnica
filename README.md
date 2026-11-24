@@ -12,6 +12,18 @@ Con el ejemplo de contacto, Testing comprueba que la página tenga un formulario
 
 En el panel puedes ver qué está haciendo cada agente y abrir cualquier tarea para ver qué se comprobó, qué falló y qué se corrigió en cada intento. Si cierras la pestaña, el trabajo se pausa y sigue cuando vuelves a abrirla.
 
+
+## Cómo lo hice
+
+Usé Claude Code para pasar del enunciado a una primera versión y fui pidiendo cambios según lo que veía en pantalla. Empezamos con la API de Claude que habia que pagar y no era idonea y luego pasamos a Gemini que es gratis y va bien pero es muy poco fiable , entonces se me ocurrio meter dos apis mas de respaldo. Revisé el plan, las instrucciones de cada agente y el resultado de la web.
+
+El panel está hecho con **Next.js**. Para guardar las peticiones, las tareas y los cambios de la web, el proyecto usa **Neon Postgres**. En local, si no configuras una base de datos, usa **PGlite** y guarda los datos en memoria.
+
+Para publicarlo, importa el repositorio en **Vercel**, conecta una base de datos Neon y configura `DATABASE_URL` y `GEMINI_API_KEY` como variables de entorno. Si quieres activar los respaldos, añade también `GROQ_API_KEY` y `OPENROUTER_API_KEY`.
+
+Dejé los detalles de la arquitectura, los reintentos y la estructura del código en el [README original](README.original.md).
+
+
 ## Cómo probarlo en tu ordenador
 
 Con Node.js instalado, abre una terminal en la carpeta del proyecto y ejecuta:
@@ -24,13 +36,3 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000) y prueba con «Añade una página de contacto». El modo simulado funciona sin claves y reproduce ese ejemplo. En el primer intento falta el formulario, Testing lo detecta y Develop lo añade en la segunda ronda.
 
 Para usar la IA, copia [.env.example](.env.example) como `.env.local` y pon tu clave en `GEMINI_API_KEY`. Reinicia el servidor si ya estaba abierto. También puedes configurar Groq y OpenRouter como respaldo con sus propias claves. En la portada puedes elegir un proveedor o dejar «Automático» para que el sistema pruebe el siguiente si hay un fallo temporal.
-
-## Cómo lo hice
-
-Usé Claude Code para pasar del enunciado a una primera versión y fui pidiendo cambios según lo que veía en pantalla. Empezamos con la API de Claude y luego pasamos a Gemini. Revisé el plan, las instrucciones de cada agente y el resultado de la web.
-
-El panel está hecho con **Next.js**. Para guardar las peticiones, las tareas y los cambios de la web, el proyecto usa **Neon Postgres**. En local, si no configuras una base de datos, usa **PGlite** y guarda los datos en memoria.
-
-Para publicarlo, importa el repositorio en **Vercel**, conecta una base de datos Neon y configura `DATABASE_URL` y `GEMINI_API_KEY` como variables de entorno. Si quieres activar los respaldos, añade también `GROQ_API_KEY` y `OPENROUTER_API_KEY`.
-
-Dejé los detalles de la arquitectura, los reintentos y la estructura del código en el [README original](README.original.md).
