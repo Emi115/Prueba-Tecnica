@@ -36,3 +36,19 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000) y prueba con «Añade una página de contacto». El modo simulado funciona sin claves y reproduce ese ejemplo. En el primer intento falta el formulario, Testing lo detecta y Develop lo añade en la segunda ronda.
 
 Para usar la IA, copia [.env.example](.env.example) como `.env.local` y pon tu clave en `GEMINI_API_KEY`. Reinicia el servidor si ya estaba abierto. También puedes configurar Groq y OpenRouter como respaldo con sus propias claves. En la portada puedes elegir un proveedor o dejar «Automático» para que el sistema pruebe el siguiente si hay un fallo temporal.
+
+
+## Limitaciones conocidas
+
+Es una demo y a veces se bugea un poco, sobre todo con peticiones largas que piden varias cosas a la vez. Las IAs gratuitas, sobre todo Gemini Flash-Lite, no siempre siguen todas las instrucciones al pie de la letra.
+
+- **Testing puede aprobar algo incompleto.** Testing comprueba lo que el Orquestador puso en los criterios. Si al planificar se le escapa algo, puede quedarse sin hacer y aun así salir aprobado. Por ejemplo, pedí «un fondo con panes, un desplegable con los productos, precios y la opción de comprar un bocata». El desplegable, los precios y los productos salieron bien, pero el fondo se quedó en unos puntos con un solo pan 🍞 en una esquina y no apareció ningún botón para comprar el bocata.
+- **Algunas cosas solo se pueden simular.** La web de ejemplo es estática, sin servidor ni imágenes subidas: «comprar» como mucho es un botón, y un fondo o un dibujo se hace con CSS o emojis.
+- **Las IAs gratuitas fallan a veces.** Pueden estar saturadas o sin cuota. Por eso hay respaldos (Gemini → Groq → OpenRouter), aunque si fallan las tres la petición se queda esperando hasta que alguna vuelve a responder.
+- **Sale un poco distinto cada vez.** La misma petición puede dar resultados diferentes en cada intento.
+
+Cómo lo mejoraría:
+
+- Añadir comprobaciones en código para los casos típicos. Por ejemplo, si la petición dice «comprar», exigir que haya un botón, sin depender de lo que diga la IA.
+- Usar un modelo más potente solo para Testing. Hace una sola llamada por ronda, así que el gasto extra es pequeño.
+- Hacer que el Orquestador saque primero una lista con todo lo que se pide y no dé por bueno el plan hasta que cada punto tenga su criterio.
