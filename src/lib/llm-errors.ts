@@ -20,17 +20,28 @@ const short = (s: string, max = 90) => {
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 };
 
-/** 429: distingue cuota diaria de límite por minuto y, si la API lo dice, cuándo reintentar. */
+/**
+ * 429: distingue la causa y, si la API lo dice, cuándo reintentar.
+ * Ojo: no todo 429 es «has gastado tu cuota». En los planes gratuitos (p. ej. Mistral «Experiment»)
+ * también llega cuando la capacidad compartida del proveedor está llena o al pasar de 1 petición/s.
+ */
 export function rateLimitReason(raw: string | undefined): string {
   const t = raw ?? "";
-  const scope = /per ?day|PerDay|\bRPD\b|\bTPD\b|daily/i.test(t)
-    ? "cuota diaria agotada"
-    : /per ?minute|PerMinute|\bRPM\b|\bTPM\b/i.test(t)
-      ? "límite por minuto"
-      : "límite de peticiones";
+  const scope = /capacity|overloaded|tier.*exceeded/i.test(t)
+    ? "capacidad gratuita del proveedor llena ahora mismo (no es tu cuota)"
+    : /per ?day|PerDay|\bRPD\b|\bTPD\b|daily/i.test(t)
+      ? "cuota diaria agotada"
+      : /per ?minute|PerMinute|\bRPM\b|\bTPM\b/i.test(t)
+        ? "límite por minuto"
+        : /per ?second|\bRPS\b|requests rate limit/i.test(t)
+          ? "límite de peticiones por segundo"
+          : "límite de peticiones";
   const retry = t.match(/(?:retry|try again)\s+(?:in|after)\s+([\d.]+)\s*(ms|s|m)?/i);
   const wait = retry ? `, reintentar en ${Math.ceil(Number(retry[1]))} ${retry[2] ?? "s"}` : "";
-  return `429 · ${scope}${wait}`;
+  // Si la causa no es una de las conocidas, se muestra lo que dice la API para no adivinar.
+  const msg = apiMessage(t);
+  const said = scope === "límite de peticiones" && msg ? ` («${short(msg, 80)}»)` : "";
+  return `429 · ${scope}${wait}${said}`;
 }
 
 /** 5xx: el código y, traducido si es el caso típico, el motivo que da la API. */

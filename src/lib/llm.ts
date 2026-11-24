@@ -90,11 +90,15 @@ export const modelNames = (choice?: AiChoice) =>
 
 /** Todos los modelos devolvieron 429 (cuota o límite de peticiones agotado). */
 export class RateLimitError extends Error {
-  constructor(detail = "") {
+  constructor(detail = "", chosen = false) {
     super(
-      "Límite de peticiones alcanzado (429) en todos los modelos disponibles" +
+      (chosen
+        ? "Límite de peticiones alcanzado (429) en la IA elegida"
+        : "Límite de peticiones alcanzado (429) en todos los modelos disponibles") +
         (detail ? ` (${detail})` : "") +
-        ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consolas de Groq y Mistral.",
+        (chosen
+          ? ". Se reintentará solo; si sigue igual, crea la petición con otra IA o con «Automático»."
+          : ". Espera un minuto y pulsa «Reanudar», o revisa la cuota en Google AI Studio / consolas de Groq y Mistral."),
     );
     this.name = "RateLimitError";
   }
@@ -305,7 +309,9 @@ export async function structured<S extends z.ZodType>(opts: {
   const deadline = Date.now() + STEP_BUDGET_MS;
   const failures: { slot: Slot; kind: "rate_limit" | "busy"; short: string }[] = [];
 
-  for (const slot of modelChain()) {
+  const chain = modelChain();
+  const chosen = (aiContext.getStore() ?? "auto") !== "auto" && chain.length === 1;
+  for (const slot of chain) {
     const remaining = deadline - Date.now();
     if (remaining < 15_000) break; // no queda tiempo para otro intento útil
     const timeoutMs = Math.min(slot.timeoutMs, Math.floor(remaining / slot.attempts));
@@ -355,7 +361,7 @@ export async function structured<S extends z.ZodType>(opts: {
   }
 
   const summary = failures.map((f) => `${label(f.slot)}: ${f.short}`).join(" · ");
-  if (failures.length && failures.every((f) => f.kind === "rate_limit")) throw new RateLimitError(summary);
+  if (failures.length && failures.every((f) => f.kind === "rate_limit")) throw new RateLimitError(summary, chosen);
   throw new GeminiBusyError(
     `Ninguna IA ha dado una respuesta válida ahora mismo (${summary || "sin tiempo para reintentar"}). Es temporal.`,
   );
