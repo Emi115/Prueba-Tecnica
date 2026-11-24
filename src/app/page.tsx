@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { RUN_STATUS } from "@/components/ui";
-import type { RunStatus } from "@/lib/types";
+import { AGENTS, RUN_STATUS } from "@/components/ui";
+import type { AgentId, RunStatus } from "@/lib/types";
 
 const EXAMPLES = [
   "Añade una página de contacto a esta web",
@@ -55,25 +55,35 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-12 sm:py-20">
-      <p className="font-mono text-xs uppercase tracking-widest text-zinc-500">Orquestador · Develop · Testing</p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Un equipo de 3 agentes de IA</h1>
-      <p className="mt-3 max-w-xl text-zinc-400">
-        Pide un cambio para la web de ejemplo (una panadería). El <span className="text-violet-300">Orquestador</span>{" "}
-        lo divide en tareas, <span className="text-sky-300">Develop</span> las programa y{" "}
-        <span className="text-amber-300">Testing</span> las prueba y le devuelve lo que falla hasta que todo pasa.
+    <main className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
+      <ol className="flex flex-wrap items-center gap-x-2 gap-y-2 text-xs font-medium" aria-label="Flujo de trabajo">
+        {(Object.keys(AGENTS) as AgentId[]).map((a, i) => (
+          <li key={a} className="flex items-center gap-2">
+            {i > 0 && <span className="text-faint" aria-hidden>→</span>}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 shadow-sm">
+              <span className={`h-2 w-2 rounded-full ${AGENTS[a].color}`} />
+              <span className={AGENTS[a].text}>{AGENTS[a].name}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <h1 className="mt-5 text-balance text-3xl font-semibold tracking-tight sm:text-5xl">Un equipo de 3 agentes de IA</h1>
+      <p className="mt-3 max-w-xl text-muted">
+        Pide un cambio para la web de ejemplo (una panadería). El <span className="text-violet-700 dark:text-violet-300">Orquestador</span>{" "}
+        lo divide en tareas, <span className="text-sky-700 dark:text-sky-300">Develop</span> las programa y{" "}
+        <span className="text-amber-700 dark:text-amber-300">Testing</span> las prueba y le devuelve lo que falla hasta que todo pasa.
       </p>
       <a
         href="/preview/original/index.html"
         target="_blank"
         rel="noopener"
-        className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/5"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-sm text-fg hover:bg-surface-2"
       >
         Ver la web original ↗
       </a>
 
-      <form onSubmit={submit} className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <label htmlFor="req" className="text-sm font-medium text-zinc-300">
+      <form onSubmit={submit} className="mt-8 card rounded-2xl p-4">
+        <label htmlFor="req" className="text-sm font-medium text-fg">
           Petición
         </label>
         <textarea
@@ -83,26 +93,26 @@ export default function Home() {
           placeholder={`Ej.: ${EXAMPLES[0]}`}
           rows={3}
           maxLength={500}
-          className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-base outline-none placeholder:text-zinc-600 focus:border-violet-400/60"
+          className="mt-2 w-full resize-none rounded-xl border border-line bg-bg p-3 text-base outline-none placeholder:text-faint focus:border-violet-500/70"
         />
-        <p className="mt-2 text-xs text-zinc-500">Ejemplos (pulsa uno para escribirlo en la petición):</p>
+        <p className="mt-2 text-xs text-subtle">Ejemplos (pulsa uno para escribirlo en la petición):</p>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {EXAMPLES.map((ex) => (
             <button
               type="button"
               key={ex}
               onClick={() => setRequest(ex)}
-              className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+              className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-line-strong hover:text-fg"
             >
               {ex}
             </button>
           ))}
         </div>
         <div className="mt-4 flex items-center justify-between gap-3">
-          {error ? <p className="text-sm text-red-300">{error}</p> : <span />}
+          {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : <span />}
           <button
             disabled={busy || request.trim().length < 5}
-            className="rounded-xl bg-violet-500 px-5 py-2.5 text-sm font-semibold text-white transition-[transform,opacity] active:scale-[0.97] disabled:opacity-50"
+            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-violet-600/30 transition-[transform,opacity,background-color] hover:bg-violet-500 active:scale-[0.97] disabled:opacity-50 disabled:shadow-none"
           >
             {busy ? "Creando…" : "Lanzar equipo"}
           </button>
@@ -110,15 +120,15 @@ export default function Home() {
       </form>
 
       <section className="mt-12">
-        <h2 className="text-sm font-medium text-zinc-400">Peticiones recientes</h2>
-        <ul className="mt-3 divide-y divide-white/5 rounded-2xl border border-white/10">
-          {runs === null && <li className="p-4 text-sm text-zinc-500">Cargando…</li>}
-          {runs?.length === 0 && <li className="p-4 text-sm text-zinc-500">Aún no hay peticiones.</li>}
+        <h2 className="text-sm font-medium text-muted">Peticiones recientes</h2>
+        <ul className="mt-3 card divide-y divide-line overflow-hidden rounded-2xl">
+          {runs === null && <li className="p-4 text-sm text-subtle">Cargando…</li>}
+          {runs?.length === 0 && <li className="p-4 text-sm text-subtle">Aún no hay peticiones.</li>}
           {runs?.map((r) => (
-            <li key={r.id} className="flex items-center hover:bg-white/[0.03]">
+            <li key={r.id} className="flex items-center hover:bg-surface-2">
               <Link href={`/runs/${r.id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4">
                 <span className="min-w-0 flex-1 truncate">{r.request}</span>
-                <span className="font-mono text-xs text-zinc-500">
+                <span className="font-mono text-xs text-subtle">
                   {r.passed}/{r.total}
                 </span>
                 <span className={`rounded-full px-2 py-0.5 text-xs ${RUN_STATUS[r.status].cls}`}>
@@ -130,7 +140,7 @@ export default function Home() {
                 target="_blank"
                 rel="noopener"
                 title="Ver la web resultante a pantalla completa"
-                className="shrink-0 py-4 pr-4 text-xs text-zinc-400 hover:text-zinc-100"
+                className="shrink-0 py-4 pr-4 text-xs text-muted hover:text-fg"
               >
                 Ver web ↗
               </a>

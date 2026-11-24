@@ -72,17 +72,17 @@ export function RunDashboard({ id }: { id: string }) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-20">
         <p>Esta petición no existe.</p>
-        <p className="mt-2 text-sm text-zinc-500">
+        <p className="mt-2 text-sm text-subtle">
           Si estás en local sin DATABASE_URL, las peticiones se guardan en memoria y se pierden al reiniciar el
           servidor.
         </p>
-        <Link href="/" className="text-violet-300 underline">
+        <Link href="/" className="text-violet-700 dark:text-violet-300 underline">
           Volver
         </Link>
       </main>
     );
   }
-  if (!data) return <main className="p-8 text-zinc-500">Cargando…</main>;
+  if (!data) return <main className="p-8 text-subtle">Cargando…</main>;
 
   const { run, tasks, events, files, meta } = data;
   const selectedTask = tasks.find((t) => t.id === selected) ?? null;
@@ -95,34 +95,34 @@ export function RunDashboard({ id }: { id: string }) {
       {/* Cabecera */}
       <header className="flex flex-wrap items-start gap-4">
         <div className="min-w-0 flex-1">
-          <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-300">
+          <Link href="/" className="text-sm text-subtle hover:text-fg">
             ← Nueva petición
           </Link>
           <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">«{run.request}»</h1>
-          {run.summary && <p className="mt-1 text-sm text-zinc-400">{run.summary}</p>}
+          {run.summary && <p className="mt-1 text-sm text-muted">{run.summary}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={`rounded-full px-2.5 py-1 ${RUN_STATUS[run.status].cls}`}>{RUN_STATUS[run.status].label}</span>
-          <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-400">
+          <span className="rounded-full border border-line px-2.5 py-1 font-mono text-muted">
             {meta.mock ? "modo simulado" : meta.model}
           </span>
           {!meta.mock && meta.fallbacks?.length > 0 && (
             <span
-              className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-500"
+              className="rounded-full border border-line px-2.5 py-1 font-mono text-subtle"
               title={`Si ${meta.model} falla (saturado, 429 o sin respuesta), se prueba en orden: ${meta.fallbacks.join(" → ")}`}
             >
               respaldo: {meta.fallbacks.join(" → ")}
             </span>
           )}
           {tasks.length > 0 && (
-            <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-zinc-400">
+            <span className="rounded-full border border-line px-2.5 py-1 font-mono text-muted">
               {passed}/{tasks.length} tareas
             </span>
           )}
           {active && (
             <button
               onClick={() => setAutoRun((v) => !v)}
-              className="rounded-full border border-white/15 px-2.5 py-1 text-zinc-300 hover:bg-white/5"
+              className="rounded-full border border-line-strong px-2.5 py-1 text-fg hover:bg-surface-2"
             >
               {autoRun ? "Pausar" : "Reanudar"}
             </button>
@@ -131,7 +131,7 @@ export function RunDashboard({ id }: { id: string }) {
             href={`/preview/${run.id}/index.html`}
             target="_blank"
             rel="noopener"
-            className="rounded-full bg-white/10 px-2.5 py-1 font-medium text-zinc-100 hover:bg-white/15"
+            className="rounded-full bg-fg px-2.5 py-1 font-medium text-bg hover:opacity-85"
           >
             {active ? "Ver cómo va ↗" : "Ver resultado ↗"}
           </a>
@@ -139,9 +139,9 @@ export function RunDashboard({ id }: { id: string }) {
       </header>
 
       {rateLimited && (
-        <div role="alert" className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+        <div role="alert" className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
           <p className="font-semibold">Límite de peticiones alcanzado (429)</p>
-          <p className="mt-1 text-amber-200/90">{rateLimited.message}</p>
+          <p className="mt-1 text-amber-800 dark:text-amber-200/90">{rateLimited.message}</p>
         </div>
       )}
 
@@ -153,7 +153,7 @@ export function RunDashboard({ id }: { id: string }) {
           const lastModel = modelOf([...events].reverse().find((e) => e.agent === a && modelOf(e)));
           const working = st.state === "working" && active;
           return (
-            <div key={a} className={`rounded-2xl border bg-white/[0.02] p-4 ${working ? AGENTS[a].ring : "border-white/10"}`}>
+            <div key={a} className={`card rounded-2xl p-4 ${working ? AGENTS[a].ring : ""}`}>
               <div className="flex items-center gap-2">
                 <span className={`h-2.5 w-2.5 rounded-full ${AGENTS[a].color} ${working ? "pulse-dot" : "opacity-60"}`} />
                 <h2 className="font-semibold">{AGENTS[a].name}</h2>
@@ -161,16 +161,16 @@ export function RunDashboard({ id }: { id: string }) {
                   {AGENT_STATE[st.state].label}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-zinc-500">{AGENTS[a].role}</p>
+              <p className="mt-1 text-xs text-subtle">{AGENTS[a].role}</p>
               {lastModel && (
-                <p className="mt-1.5 text-xs text-zinc-500">
+                <p className="mt-1.5 text-xs text-subtle">
                   Última respuesta de
                   <ModelBadge info={lastModel} />
                 </p>
               )}
-              <p className="mt-3 text-sm text-zinc-200">{st.detail}</p>
+              <p className="mt-3 text-sm text-fg">{st.detail}</p>
               {last && (
-                <p className="mt-2 line-clamp-2 text-xs text-zinc-500">
+                <p className="mt-2 line-clamp-2 text-xs text-subtle">
                   <span className="font-mono">{time(last.created_at)}</span> · {last.message}
                 </p>
               )}
@@ -181,9 +181,9 @@ export function RunDashboard({ id }: { id: string }) {
 
       {/* Tablero de tareas */}
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-zinc-400">Tareas</h2>
+        <h2 className="text-sm font-medium text-muted">Tareas</h2>
         {tasks.length === 0 ? (
-          <p className="mt-2 rounded-2xl border border-dashed border-white/10 p-6 text-sm text-zinc-500">
+          <p className="mt-2 rounded-2xl border border-dashed border-line p-6 text-sm text-subtle">
             El Orquestador está dividiendo la petición en tareas…
           </p>
         ) : (
@@ -191,8 +191,8 @@ export function RunDashboard({ id }: { id: string }) {
             {COLUMNS.map((col) => {
               const items = tasks.filter((t) => col.statuses.includes(t.status));
               return (
-                <div key={col.title} className="min-h-28 rounded-2xl border border-white/10 bg-white/[0.02] p-2">
-                  <p className="px-1 pb-2 text-xs text-zinc-500">
+                <div key={col.title} className="min-h-28 card rounded-2xl p-2">
+                  <p className="px-1 pb-2 text-xs text-subtle">
                     {col.title} <span className="font-mono">{items.length}</span>
                   </p>
                   <div className="space-y-2">
@@ -200,24 +200,24 @@ export function RunDashboard({ id }: { id: string }) {
                       <button
                         key={t.id}
                         onClick={() => setSelected(t.id === selected ? null : t.id)}
-                        className={`w-full rounded-xl border p-3 text-left transition-colors hover:bg-white/[0.04] ${
-                          t.id === selected ? "border-violet-400/60" : "border-white/10"
+                        className={`w-full rounded-xl border p-3 text-left transition-colors hover:bg-surface-2 ${
+                          t.id === selected ? "border-violet-500/70" : "border-line"
                         }`}
                       >
                         <p className="text-sm leading-snug">
-                          <span className="font-mono text-zinc-500">T{t.idx + 1}</span> {t.title}
+                          <span className="font-mono text-subtle">T{t.idx + 1}</span> {t.title}
                         </p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                           <span className={`rounded-full px-2 py-0.5 ${TASK_STATUS[t.status].cls}`}>
                             {TASK_STATUS[t.status].label}
                           </span>
                           {t.attempts > 0 && (
-                            <span className="font-mono text-zinc-500">
+                            <span className="font-mono text-subtle">
                               ronda {t.attempts}/{MAX_ATTEMPTS}
                             </span>
                           )}
                           {t.last_report && (
-                            <span className="font-mono text-zinc-500">
+                            <span className="font-mono text-subtle">
                               {t.last_report.checks.filter((c) => c.passed).length}/{t.last_report.checks.length} ✓
                             </span>
                           )}
@@ -240,7 +240,7 @@ export function RunDashboard({ id }: { id: string }) {
       </section>
 
       {meta.mock && (
-        <p className="mt-6 text-xs text-zinc-500">
+        <p className="mt-6 text-xs text-subtle">
           Modo simulado: no hay GEMINI_API_KEY configurada, los agentes responden con datos de ejemplo
           {meta.localDb ? " y la base de datos es local en memoria" : ""}.
         </p>
@@ -253,20 +253,20 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
   const r = task.last_report;
   const history = events.filter((e) => e.task_id === task.id && e.type !== "thinking");
   return (
-    <div className="mt-3 grid gap-4 rounded-2xl border border-violet-400/30 bg-white/[0.02] p-4 md:grid-cols-2">
+    <div className="mt-3 grid gap-4 card rounded-2xl border-violet-500/40 p-4 md:grid-cols-2">
       <div>
         <p className="font-semibold">
           T{task.idx + 1} · {task.title}
         </p>
-        <p className="mt-1 text-sm text-zinc-400">{task.description}</p>
-        <p className="mt-3 text-xs font-medium text-zinc-500">Criterios de aceptación</p>
-        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-300">
+        <p className="mt-1 text-sm text-muted">{task.description}</p>
+        <p className="mt-3 text-xs font-medium text-subtle">Criterios de aceptación</p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-fg">
           {task.acceptance.map((a) => (
             <li key={a}>{a}</li>
           ))}
         </ul>
-        <p className="mt-3 text-xs font-medium text-zinc-500">Historial</p>
-        <ol className="mt-1 space-y-1 text-xs text-zinc-400">
+        <p className="mt-3 text-xs font-medium text-subtle">Historial</p>
+        <ol className="mt-1 space-y-1 text-xs text-muted">
           {history.map((e) => (
             <li key={e.id}>
               <span className={AGENTS[e.agent as AgentId]?.text}>{AGENTS[e.agent as AgentId]?.name}</span>
@@ -276,45 +276,45 @@ function TaskDetail({ task, events }: { task: Task; events: AgentEvent[] }) {
         </ol>
       </div>
       <div>
-        <p className="text-xs font-medium text-zinc-500">
+        <p className="text-xs font-medium text-subtle">
           {task.history?.length ? `Intentos (${task.history.length}/${MAX_ATTEMPTS})` : "Aún sin informe de Testing"}
         </p>
         <div className="mt-2 space-y-2">
           {(task.history ?? []).map((h) => (
-            <details key={h.attempt} open={h.attempt === r?.attempt} className="rounded-xl border border-white/10 p-3">
+            <details key={h.attempt} open={h.attempt === r?.attempt} className="rounded-xl border border-line p-3">
               <summary className="flex cursor-pointer items-center gap-2 text-sm">
-                <span className="font-mono text-zinc-500">#{h.attempt}</span>
-                <span className={h.passed ? "text-emerald-300" : "text-red-300"}>
+                <span className="font-mono text-subtle">#{h.attempt}</span>
+                <span className={h.passed ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}>
                   {h.passed ? "Superado" : "Con fallos"}
                 </span>
-                <span className="ml-auto font-mono text-[11px] text-zinc-500">
+                <span className="ml-auto font-mono text-[11px] text-subtle">
                   {h.checks.filter((c) => c.passed).length}/{h.checks.length} ✓ · {time(h.at)}
                 </span>
               </summary>
-              <p className="mt-2 text-xs text-sky-300/90">
+              <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
                 Develop
                 <ModelBadge info={h.dev_model} />: {h.dev_summary}
               </p>
-              {h.files.length > 0 && <p className="font-mono text-[11px] text-zinc-500">✎ {h.files.join(", ")}</p>}
+              {h.files.length > 0 && <p className="font-mono text-[11px] text-subtle">✎ {h.files.join(", ")}</p>}
               <ul className="mt-2 space-y-1.5">
                 {h.checks.map((c, i) => (
                 <li key={i} className="flex gap-2 text-sm">
-                  <span className={c.passed ? "text-emerald-400" : "text-red-400"}>{c.passed ? "✓" : "✗"}</span>
+                  <span className={c.passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>{c.passed ? "✓" : "✗"}</span>
                   <span className="min-w-0">
-                    <span className="text-zinc-200">{c.description}</span>
-                    <span className="block font-mono text-[11px] text-zinc-500">
+                    <span className="text-fg">{c.description}</span>
+                    <span className="block font-mono text-[11px] text-subtle">
                       {c.type} · {c.detail}
                     </span>
                   </span>
                 </li>
               ))}
               </ul>
-              <p className="mt-2 text-xs text-zinc-500">
+              <p className="mt-2 text-xs text-subtle">
                 Revisión de código: {h.review.approved ? "aprobada" : "rechazada"} · Testing
                 <ModelBadge info={h.test_model} />
               </p>
               {h.review.issues.length > 0 && (
-                <ul className="mt-1 list-disc pl-5 text-sm text-red-300">
+                <ul className="mt-1 list-disc pl-5 text-sm text-red-700 dark:text-red-300">
                   {h.review.issues.map((i) => (
                     <li key={i}>{i}</li>
                   ))}
@@ -338,22 +338,22 @@ function ActivityLog({ events, tasks }: { events: AgentEvent[]; tasks: Task[] })
     return t ? `T${t.idx + 1}` : null;
   };
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
-      <p className="border-b border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-400">Actividad de los agentes</p>
+    <div className="card rounded-2xl">
+      <p className="border-b border-line px-4 py-2.5 text-sm font-medium text-muted">Actividad de los agentes</p>
       <ol ref={ref} className="max-h-[480px] space-y-2 overflow-y-auto p-4">
         {events.map((e) => {
           const a = AGENTS[e.agent as AgentId];
           const label = taskLabel(e.task_id);
           return (
             <li key={e.id} className="flex gap-3 text-sm">
-              <span className="w-16 shrink-0 font-mono text-[11px] leading-5 text-zinc-600">{time(e.created_at)}</span>
+              <span className="w-16 shrink-0 font-mono text-[11px] leading-5 text-faint">{time(e.created_at)}</span>
               <span className="min-w-0">
-                <span className={`font-medium ${a?.text ?? (e.type === "error" ? "text-red-300" : "text-zinc-400")}`}>
+                <span className={`font-medium ${a?.text ?? (e.type === "error" ? "text-red-700 dark:text-red-300" : "text-muted")}`}>
                   {a?.name ?? "Sistema"}
                 </span>
-                {label && <span className="ml-1.5 font-mono text-[11px] text-zinc-500">{label}</span>}
+                {label && <span className="ml-1.5 font-mono text-[11px] text-subtle">{label}</span>}
                 <ModelBadge info={modelOf(e)} />
-                <span className={`ml-2 ${e.type === "thinking" ? "italic text-zinc-500" : "text-zinc-300"}`}>{e.message}</span>
+                <span className={`ml-2 ${e.type === "thinking" ? "italic text-subtle" : "text-fg"}`}>{e.message}</span>
                 <EventExtra e={e} />
               </span>
             </li>
@@ -371,9 +371,9 @@ function modelOf(e: AgentEvent | undefined): ModelInfo | null {
 }
 
 const PROVIDER_BADGE: Record<ModelInfo["provider"], { name: string; cls: string }> = {
-  gemini: { name: "Gemini", cls: "bg-sky-500/15 text-sky-300" },
-  groq: { name: "Groq", cls: "bg-orange-500/15 text-orange-300" },
-  mistral: { name: "Mistral", cls: "bg-rose-500/15 text-rose-300" },
+  gemini: { name: "Gemini", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300" },
+  groq: { name: "Groq", cls: "bg-orange-500/15 text-orange-700 dark:text-orange-300" },
+  mistral: { name: "Mistral", cls: "bg-rose-500/15 text-rose-700 dark:text-rose-300" },
 };
 
 function ModelBadge({ info }: { info: ModelInfo | null | undefined }) {
@@ -402,10 +402,10 @@ function EventExtra({ e }: { e: AgentEvent }) {
   const d = e.data as { files?: string[]; tasks?: string[] } | null;
   if (!d) return null;
   if (d.files?.length)
-    return <span className="mt-0.5 block font-mono text-[11px] text-zinc-500">✎ {d.files.join(", ")}</span>;
+    return <span className="mt-0.5 block font-mono text-[11px] text-subtle">✎ {d.files.join(", ")}</span>;
   if (d.tasks?.length)
     return (
-      <ol className="mt-1 list-decimal pl-5 text-xs text-zinc-400">
+      <ol className="mt-1 list-decimal pl-5 text-xs text-muted">
         {d.tasks.map((t) => (
           <li key={t}>{t}</li>
         ))}
@@ -425,8 +425,8 @@ const MODES: { id: PreviewMode; label: string }[] = [
 ];
 
 const CHANGE_BADGE: Record<Change, { label: string; cls: string } | null> = {
-  new: { label: "nueva", cls: "bg-emerald-500/15 text-emerald-300" },
-  modified: { label: "cambiada", cls: "bg-sky-500/15 text-sky-300" },
+  new: { label: "nueva", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
+  modified: { label: "cambiada", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300" },
   same: null,
 };
 
@@ -451,7 +451,7 @@ function SitePreview({ runId, files, version }: { runId: string; files: SiteFile
 
   const frame = (src: string | null, label: string, emptyText: string) => (
     <div className="flex min-w-0 flex-1 flex-col">
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-subtle">{label}</p>
       {src ? (
         <iframe
           key={`${src}-${version}`}
@@ -461,7 +461,7 @@ function SitePreview({ runId, files, version }: { runId: string; files: SiteFile
           className="h-full min-h-[400px] w-full rounded-lg bg-white"
         />
       ) : (
-        <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-lg border border-dashed border-white/15 p-6 text-center text-sm text-zinc-500">
+        <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-lg border border-dashed border-line-strong p-6 text-center text-sm text-subtle">
           {emptyText}
         </div>
       )}
@@ -474,32 +474,32 @@ function SitePreview({ runId, files, version }: { runId: string; files: SiteFile
 
   return (
     <div
-      className={`flex min-h-[480px] flex-col rounded-2xl border border-white/10 bg-white/[0.02] ${
+      className={`flex min-h-[480px] flex-col card rounded-2xl ${
         mode === "compare" ? "lg:col-span-2" : ""
       }`}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-2">
-        <p className="mr-auto text-sm font-medium text-zinc-400">
-          Web <span className="text-zinc-600">·</span>{" "}
-          <span className="text-xs text-zinc-500">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+        <p className="mr-auto text-sm font-medium text-muted">
+          Web <span className="text-faint">·</span>{" "}
+          <span className="text-xs text-subtle">
             {changedCount === 0 ? "sin cambios todavía" : `${changedCount} fichero(s) nuevos o cambiados`}
           </span>
         </p>
-        <div className="flex rounded-lg border border-white/10 p-0.5 text-xs" role="tablist">
+        <div className="flex rounded-lg border border-line p-0.5 text-xs" role="tablist">
           {MODES.map((m) => (
             <button
               key={m.id}
               role="tab"
               aria-selected={mode === m.id}
               onClick={() => setMode(m.id)}
-              className={`rounded-md px-2.5 py-1 ${mode === m.id ? "bg-white/10 text-zinc-100" : "text-zinc-400"}`}
+              className={`rounded-md px-2.5 py-1 ${mode === m.id ? "bg-surface-2 text-fg shadow-sm" : "text-muted hover:text-fg"}`}
             >
               {m.label}
             </button>
           ))}
         </div>
         {mode !== "code" && (
-          <span className="flex gap-3 text-xs text-zinc-400">
+          <span className="flex gap-3 text-xs text-muted">
             {beforeSrc && (
               <a href={beforeSrc} target="_blank" rel="noopener" className="underline-offset-2 hover:underline">
                 Abrir antes ↗
@@ -520,7 +520,7 @@ function SitePreview({ runId, files, version }: { runId: string; files: SiteFile
               key={p}
               onClick={() => (mode === "code" ? setCodeFile(p) : setPage(p))}
               className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-xs ${
-                current === p ? "bg-white/10 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                current === p ? "bg-surface-2 text-fg" : "text-subtle hover:text-fg"
               }`}
             >
               {p}
@@ -540,7 +540,7 @@ function SitePreview({ runId, files, version }: { runId: string; files: SiteFile
           </div>
         )}
         {mode === "code" && (
-          <pre className="h-full max-h-[440px] w-full overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-zinc-300">
+          <pre className="h-full max-h-[440px] w-full overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-[12px] leading-relaxed text-fg">
             {code?.content ?? "—"}
           </pre>
         )}

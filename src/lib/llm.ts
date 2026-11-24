@@ -14,7 +14,7 @@ import { z } from "zod";
 
 export const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
 // Alias oficial que Google mantiene apuntando al Flash estable más reciente: no caduca como
-// los modelos con versión (gemini-2.5-flash-lite ya devuelve 404) y tiene capacidad aparte de Flash-Lite.
+// los modelos con versión y tiene capacidad aparte de Flash-Lite.
 const GEMINI_FALLBACK = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-latest";
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
