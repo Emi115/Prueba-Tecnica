@@ -51,11 +51,10 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
 - **Cadena de respaldo.** Cada llamada prueba en orden, y solo pasa al siguiente si el fallo es temporal
   (503/saturado, sin respuesta a tiempo, 429 o modelo no disponible):
   1. `gemini-3.1-flash-lite` (`GEMINI_MODEL`), con un reintento propio.
-  2. `gemini-flash-latest` (`GEMINI_FALLBACK_MODEL`; `none` lo desactiva): alias de Google que siempre apunta al Flash estable más reciente, misma clave.
-  3. **Groq** `openai/gpt-oss-120b` (`GROQ_MODEL`), gratis y sin tarjeta, solo si hay `GROQ_API_KEY`
+  2. **Groq** `openai/gpt-oss-120b` (`GROQ_MODEL`), gratis y sin tarjeta, solo si hay `GROQ_API_KEY`
      (https://console.groq.com/keys). Se llama con `fetch` a su API compatible con OpenAI y el JSON se valida
      con los mismos esquemas Zod.
-  4. **Mistral** `mistral-small-latest` (`MISTRAL_MODEL`), plan gratuito «Experiment» sin tarjeta, solo si hay
+  3. **Mistral** `mistral-small-latest` (`MISTRAL_MODEL`), plan gratuito «Experiment» sin tarjeta, solo si hay
      `MISTRAL_API_KEY` (https://console.mistral.ai/api-keys). Misma API compatible con OpenAI y la misma función
      que Groq. Otra empresa y otra infraestructura: es poco probable que falle a la vez que Google y Groq.
 
@@ -119,7 +118,7 @@ Sin `GEMINI_API_KEY` funciona en **modo simulado**: agentes deterministas que re
 2. En el proyecto de Vercel: **Storage → Create → Neon** (plan gratuito). Crea `DATABASE_URL` sola.
 3. **Settings → Environment Variables:** `GEMINI_API_KEY` (de https://aistudio.google.com/apikey), `GROQ_API_KEY`
    y `MISTRAL_API_KEY` (opcionales, de https://console.groq.com/keys y https://console.mistral.ai/api-keys, para
-   las IAs de respaldo) y, opcionales, `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`, `GROQ_MODEL` y `MISTRAL_MODEL`.
+   las IAs de respaldo) y, opcionales, `GEMINI_MODEL`, `GROQ_MODEL` y `MISTRAL_MODEL`.
 4. Redeploy.
 
 ## Cómo usé Claude Code

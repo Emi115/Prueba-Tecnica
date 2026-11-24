@@ -5,18 +5,14 @@ import { apiMessage, finishReason, rateLimitReason, serverErrorReason } from "./
 
 /* ------------------------------------------------------------------
  * Cadena de modelos con respaldo
- *   1. Gemini principal  (GEMINI_MODEL, por defecto gemini-3.1-flash-lite)
- *   2. Gemini de respaldo (GEMINI_FALLBACK_MODEL, por defecto gemini-flash-latest; "none" lo desactiva)
- *   3. Groq               (solo si hay GROQ_API_KEY; GROQ_MODEL, por defecto openai/gpt-oss-120b)
- *   4. Mistral            (solo si hay MISTRAL_API_KEY; MISTRAL_MODEL, por defecto mistral-small-latest)
+ *   1. Gemini   (GEMINI_MODEL, por defecto gemini-3.1-flash-lite)
+ *   2. Groq     (solo si hay GROQ_API_KEY; GROQ_MODEL, por defecto openai/gpt-oss-120b)
+ *   3. Mistral  (solo si hay MISTRAL_API_KEY; MISTRAL_MODEL, por defecto mistral-small-latest)
  * Solo se pasa al siguiente si el fallo es temporal (saturado, sin respuesta, 429 o modelo no
  * disponible). Una clave inválida detiene la ejecución: reintentar con otro modelo la ocultaría.
  * ------------------------------------------------------------------ */
 
 export const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
-// Alias oficial que Google mantiene apuntando al Flash estable más reciente: no caduca como
-// los modelos con versión y tiene capacidad aparte de Flash-Lite.
-const GEMINI_FALLBACK = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-latest";
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MISTRAL_MODEL = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
@@ -55,7 +51,7 @@ interface Slot {
 }
 
 /**
- * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s × 3 ≈ 215 s en el peor caso, por debajo
+ * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s × 2 ≈ 170 s en el peor caso, por debajo
  * del lock (280 s) y del maxDuration de Vercel (300 s). Además, cada slot recorta su timeout
  * al tiempo que quede del presupuesto, así nunca se corta la función a medias.
  */
@@ -63,9 +59,6 @@ const STEP_BUDGET_MS = 230_000;
 
 export function modelChain(): Slot[] {
   const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 50_000, attempts: 2 }];
-  if (GEMINI_FALLBACK !== "none" && GEMINI_FALLBACK !== MODEL) {
-    chain.push({ provider: "gemini", model: GEMINI_FALLBACK, timeoutMs: 35_000, attempts: 1 });
-  }
   if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 35_000, attempts: 1 });
   if (mistralKey()) chain.push({ provider: "mistral", model: MISTRAL_MODEL, timeoutMs: 35_000, attempts: 1 });
   return chain;
