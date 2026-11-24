@@ -93,22 +93,23 @@ export function RunDashboard({ id }: { id: string }) {
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       {/* Cabecera */}
-      <header className="flex flex-wrap items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <Link href="/" className="text-sm text-subtle hover:text-fg">
+      <header className="flex flex-wrap items-start gap-x-6 gap-y-3">
+        {/* Base de 24rem: si las etiquetas no caben al lado, bajan a otra línea en vez de aplastar el título. */}
+        <div className="min-w-0 flex-[1_1_24rem]">
+          <Link href="/" className="text-sm whitespace-nowrap text-subtle hover:text-fg">
             ← Nueva petición
           </Link>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">«{run.request}»</h1>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight text-pretty break-words sm:text-2xl">«{run.request}»</h1>
           {run.summary && <p className="mt-1 text-sm text-muted">{run.summary}</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
           <span className={`rounded-full px-2.5 py-1 ${RUN_STATUS[run.status].cls}`}>{RUN_STATUS[run.status].label}</span>
           <span className="rounded-full border border-line px-2.5 py-1 font-mono text-muted">
             {meta.mock ? "modo simulado" : meta.model}
           </span>
           {!meta.mock && meta.fallbacks?.length > 0 && (
             <span
-              className="rounded-full border border-line px-2.5 py-1 font-mono text-subtle"
+              className="max-w-full truncate rounded-full border border-line px-2.5 py-1 font-mono text-subtle"
               title={`Si ${meta.model} falla (saturado, 429 o sin respuesta), se prueba en orden: ${meta.fallbacks.join(" → ")}`}
             >
               respaldo: {meta.fallbacks.join(" → ")}
