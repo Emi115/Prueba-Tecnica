@@ -23,6 +23,54 @@ const AI_DOT: Record<AiChoice, string> = {
 
 const shortModel = (m: string) => m.split(":").pop()!.split("/").pop()!.replace(/^gemini-/, "");
 
+/**
+ * Eliminar una petición en dos pasos: el primer clic pide confirmación («¿Eliminar?») y el segundo borra.
+ * Si no se confirma en 4 s, vuelve a su estado normal.
+ */
+function DeleteRunButton({ id, onDeleted }: { id: string; onDeleted: () => void }) {
+  const [state, setState] = useState<"idle" | "confirm" | "deleting" | "error">("idle");
+
+  useEffect(() => {
+    if (state !== "confirm" && state !== "error") return;
+    const t = setTimeout(() => setState("idle"), 4000);
+    return () => clearTimeout(t);
+  }, [state]);
+
+  async function click() {
+    if (state === "idle" || state === "error") return setState("confirm");
+    if (state !== "confirm") return;
+    setState("deleting");
+    const res = await fetch(`/api/runs/${id}`, { method: "DELETE" }).catch(() => null);
+    // 404: ya no existía (p. ej. borrada desde otra pestaña); también se quita de la lista.
+    if (res && (res.ok || res.status === 404)) onDeleted();
+    else setState("error");
+  }
+
+  const label =
+    state === "confirm" ? "¿Eliminar?" : state === "deleting" ? "Eliminando…" : state === "error" ? "Error, reintenta" : null;
+
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={state === "deleting"}
+      aria-label={label ?? "Eliminar petición"}
+      title="Eliminar esta petición"
+      className={`mr-2 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs transition-colors disabled:opacity-60 ${
+        label
+          ? "bg-red-600 font-medium text-white hover:bg-red-500"
+          : "text-subtle hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M10 11v6M14 11v6" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
 function AiPicker({ value, onChange, info }: { value: AiChoice; onChange: (v: AiChoice) => void; info: AiInfo | null }) {
   const options: { id: AiChoice; name: string }[] = [{ id: "auto", name: "Automático" }, ...(info?.options ?? [])];
   const chosen = info?.options.find((o) => o.id === value);
@@ -209,6 +257,8 @@ export default function Home() {
               >
                 Ver web ↗
               </a>
+              {/* Botón de eliminar por petición (componente DeleteRunButton, más abajo) */}
+              <DeleteRunButton id={r.id} onDeleted={() => setRuns((rs) => rs?.filter((x) => x.id !== r.id) ?? rs)} />
             </li>
           ))}
         </ul>

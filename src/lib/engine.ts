@@ -38,6 +38,15 @@ export async function getRun(id: string) {
   return { run, tasks, events: events.map((e) => ({ ...e, id: Number(e.id) })), files };
 }
 
+/**
+ * Borra una petición; tareas, ficheros y eventos caen con ella (ON DELETE CASCADE).
+ * Si estaba en curso, el siguiente /step no la encuentra y el panel deja de avanzarla.
+ */
+export async function deleteRun(id: string): Promise<boolean> {
+  const rows = await q<{ id: string }>(`DELETE FROM runs WHERE id = $1 RETURNING id`, [id]);
+  return rows.length > 0;
+}
+
 export async function listRuns() {
   return q<Pick<Run, "id" | "request" | "status" | "created_at" | "ai"> & { total: number; passed: number }>(
     `SELECT r.id, r.request, r.status, r.created_at, r.ai,
