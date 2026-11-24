@@ -56,7 +56,7 @@ interface Slot {
 }
 
 /**
- * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s + 45 s ≈ 180 s en el peor caso, por debajo
+ * Presupuesto de tiempo de un paso: 50 s × 2 + 35 s + 90 s ≈ 225 s en el peor caso, por debajo
  * del lock (280 s) y del maxDuration de Vercel (300 s). Además, cada slot recorta su timeout
  * al tiempo que quede del presupuesto, así nunca se corta la función a medias.
  */
@@ -81,11 +81,12 @@ export function availableAis(): { id: Exclude<AiChoice, "auto">; name: string; m
 export function modelChain(choice: AiChoice = aiContext.getStore() ?? "auto"): Slot[] {
   const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 50_000, attempts: 2 }];
   if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 35_000, attempts: 1 });
-  // Los modelos gratuitos de OpenRouter son más lentos: algo más de margen.
-  if (openrouterKey()) chain.push({ provider: "openrouter", model: OPENROUTER_MODEL, timeoutMs: 45_000, attempts: 1 });
-  // IA elegida a mano: solo esa, sin respaldo y con más margen de tiempo. Si ya no tiene clave, automático.
+  // Los modelos gratuitos de OpenRouter son lentos (reescribir ficheros completos pasa de 50 s): más margen.
+  if (openrouterKey()) chain.push({ provider: "openrouter", model: OPENROUTER_MODEL, timeoutMs: 90_000, attempts: 1 });
+  // IA elegida a mano: solo esa, sin respaldo, así que puede usar casi todo el presupuesto del paso
+  // (180 s repartidos entre sus intentos). Si ya no tiene clave, automático.
   const only = chain.find((s) => s.provider === choice);
-  return only ? [{ ...only, timeoutMs: 50_000 }] : chain;
+  return only ? [{ ...only, timeoutMs: Math.floor(180_000 / only.attempts) }] : chain;
 }
 
 /** Nombres de los modelos de la cadena, para mostrarlos en el panel (sin claves). */
@@ -274,8 +275,18 @@ async function callOpenAICompat(provider: CompatProvider, model: string, o: Call
     throw new SlotUnavailable("busy", "no se pudo conectar");
   }
 
+  // El timeout también corta la lectura del cuerpo: OpenRouter manda las cabeceras enseguida y el
+  // contenido cuando el modelo termina, así que el «abort» puede llegar aquí y no en el fetch.
+  let raw: string;
+  try {
+    raw = await res.text();
+  } catch (err) {
+    if (isTimeout(err)) throw new SlotUnavailable("busy", `sin respuesta en ${Math.round(o.timeoutMs / 1000)} s`);
+    throw new SlotUnavailable("busy", "la respuesta se cortó a medias");
+  }
+
   if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 300);
+    const detail = raw.slice(0, 300);
     if (res.status === 401 || res.status === 403) throw new ConfigError(`HTTP ${res.status}`, p.env);
     if (res.status === 429) {
       if (hasZeroQuota(res.headers)) throw new SlotUnavailable("no_plan", `429 · ${NO_PLAN_HINT[p.name]}`);
@@ -289,10 +300,22 @@ async function callOpenAICompat(provider: CompatProvider, model: string, o: Call
     throw new SlotUnavailable("busy", `respuesta no válida (HTTP ${res.status}${msg ? `: ${msg.slice(0, 120)}` : ""})`);
   }
 
-  const data = (await res.json()) as {
+  let data: {
     choices?: { message?: { content?: string }; finish_reason?: string }[];
     usage?: { prompt_tokens?: number; completion_tokens?: number };
+    error?: { code?: number | string; message?: string };
   };
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new SlotUnavailable("busy", "respuesta del servidor ilegible");
+  }
+  // OpenRouter puede devolver 200 con un error si el proveedor de detrás falla a mitad de la respuesta.
+  if (data.error) {
+    const msg = apiMessage(JSON.stringify({ error: data.error })) || "error del proveedor";
+    if (Number(data.error.code) === 429) throw new SlotUnavailable("rate_limit", rateLimitReason(msg));
+    throw new SlotUnavailable("busy", `error del proveedor: ${msg.slice(0, 120)}`);
+  }
   const choice = data.choices?.[0];
   if (choice?.finish_reason === "length") throw new SlotUnavailable("busy", finishReason("MAX_TOKENS"));
   return {

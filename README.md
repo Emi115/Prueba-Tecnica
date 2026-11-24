@@ -10,16 +10,25 @@ cada uno y en qué estado está cada tarea.
 ## Cómo funciona
 
 ```
-Petición ──► ORQUESTADOR ──► tareas (con criterios de aceptación)
+Petición ──► ORQUESTADOR ──► 1-3 tareas (una por cambio, con criterios de aceptación)
                  │
-                 ▼  asigna la siguiente tarea
-             DEVELOP ──► reescribe los ficheros de la web (en BD)
+                 ▼  asigna las tareas, una tras otra
+             DEVELOP ──► reescribe los ficheros de la web (en BD), TODAS las tareas
                  ▲              │
-   informe de    │              ▼
-   fallos        └──────── TESTING ──► escribe checks + revisa el código
-   (máx. 3 rondas)                     ejecuta los checks con un parser HTML real
-                                       ✓ todo pasa → tarea superada → siguiente tarea
+   informe de    │              ▼  cuando Develop ha entregado todas
+   fallos        └──────── TESTING ──► una sola llamada: checks + revisión de todas las tareas
+   (solo las tareas                    ejecuta los checks con un parser HTML real
+    que fallan; máx. 3 rondas)         ✓ todo pasa → tareas superadas → fin
 ```
+
+**Ahorro de llamadas a la IA.** Los planes gratuitos dan pocas llamadas al día (p. ej. 50 en OpenRouter), así que:
+
+- El Orquestador agrupa por **cambio**, no por fichero (el mismo cambio en `index.html` y `nosotros.html` es una tarea).
+- Testing prueba **todas las tareas entregadas en una sola llamada**, y solo vuelven a Develop las que fallan.
+  Con 3 tareas sin fallos: 1 (plan) + 3 (Develop) + 1 (Testing) = 5 llamadas, en lugar de 7.
+- **Re-prueba sin IA:** si en la ronda anterior la revisión de Testing estaba aprobada y solo fallaban checks, la
+  siguiente ronda ejecuta los checks ya escritos con Cheerio sin llamar a la IA («repetidas sin IA» en el panel).
+- El resumen final dice cuántas llamadas a la IA ha usado la petición.
 
 | Agente | Qué hace | Salida (JSON validado con zod) |
 |---|---|---|
@@ -28,7 +37,8 @@ Petición ──► ORQUESTADOR ──► tareas (con criterios de aceptación)
 | **Testing** | Escribe una batería de comprobaciones (`file_exists`, `text_contains`, `selector_exists`, `link_to`, `no_broken_links`, `labels_for_inputs`) y hace una revisión de QA. Los checks **no los evalúa el LLM**: se ejecutan con `cheerio` sobre el HTML real ([src/lib/checks.ts](src/lib/checks.ts)). La tarea pasa solo si todos los checks pasan y la revisión la aprueba. | `{ checks[], review{approved, issues[]} }` |
 
 Los checks se fijan en la primera ronda y se reutilizan en las siguientes, para que el listón no cambie mientras
-Develop corrige. Tras 3 rondas fallidas la tarea queda **bloqueada** y el Orquestador sigue con el resto.
+Develop corrige (y Testing ya no los vuelve a escribir: menos tokens). Tras 3 rondas fallidas la tarea queda
+**bloqueada** y el Orquestador sigue con el resto.
 
 Además, en cada ronda se añade un `no_broken_links` (marcado `[web]`) para **todas** las páginas HTML que existan
 en ese momento: ninguna puede enlazar a una página o fichero que no exista (p. ej. un botón a `noticias.html` sin
@@ -66,7 +76,7 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
   Cada mensaje del panel lleva una etiqueta con la IA que respondió (azul Gemini, naranja Groq, índigo OpenRouter, y «respaldo»
   si el principal falló; al pasar el ratón se ve qué falló). También en cada agente y en cada intento. La cabecera
   muestra la cadena configurada. Una clave inválida **no** pasa al siguiente: detiene la ejecución con un mensaje claro.
-- Presupuesto de tiempo: toda la cadena (tres modelos) cabe en ~180 s, por debajo del lock (280 s) y de los 300 s de una función de Vercel.
+- Presupuesto de tiempo: toda la cadena (tres modelos) cabe en ~225 s (una IA elegida a mano tiene hasta 180 s), por debajo del lock (280 s) y de los 300 s de una función de Vercel.
 - Si **ninguna** IA responde, el motor reintenta el paso hasta 5 veces seguidas con 15 s de espera
   («Ninguna IA ha respondido… Reintento 2/5») y solo entonces detiene la ejecución.
 - Si todas devuelven 429, el panel muestra un banner «Límite de peticiones alcanzado (429)» y reintenta tras 30 s,

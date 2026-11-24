@@ -5,7 +5,7 @@ import { BASE_SITE } from "./base-site";
 import { contactDemoChecks, mergeChecks, runChecks, siteLinkChecks } from "./checks";
 import { planTasks } from "./agents/orchestrator";
 import { develop } from "./agents/developer";
-import { test } from "./agents/tester";
+import { test, type TaskTest } from "./agents/tester";
 import { ConfigError, GeminiBusyError, RateLimitError, withAi, type LlmUsage } from "./llm";
 import {
   BUSY_WAIT_MS,
@@ -213,7 +213,13 @@ export async function step(runId: string): Promise<StepResult> {
       await setAgents(runId, { orchestrator: { state: "error", detail: `Detenido: ${err.short}` } });
       return { status: "finished" };
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const raw = err instanceof Error ? err.message : String(err);
+    // Errores técnicos que se escapen sin traducir (del runtime, en inglés): mensaje claro en español.
+    const message = /abort|timed?\s?out|timeout/i.test(raw)
+      ? "la IA tardó demasiado en responder"
+      : /fetch failed|ECONNRESET|ENOTFOUND|socket/i.test(raw)
+        ? "se perdió la conexión con la IA"
+        : raw;
     const recent = await q<{ type: string }>(
       `SELECT type FROM events WHERE run_id = $1 AND type <> 'thinking' ORDER BY id DESC LIMIT 2`,
       [runId],
@@ -265,9 +271,14 @@ async function stepPlan(run: Run) {
 
 async function stepWork(run: Run) {
   const tasks = await q<Task>(`SELECT * FROM tasks WHERE run_id = $1 ORDER BY idx`, [run.id]);
-  const task = tasks.find((t) => t.status !== "passed" && t.status !== "blocked");
+  const open = tasks.filter((t) => t.status !== "passed" && t.status !== "blocked");
+  if (!open.length) return finish(run, tasks);
 
-  if (!task) return finish(run, tasks);
+  // Develop entrega TODAS las tareas (o correcciones) antes de que Testing pruebe: así Testing hace una
+  // llamada por ronda para todas, en vez de una por tarea.
+  const toDevelop = open.filter((t) => DEV_STATUSES.includes(t.status));
+  const task = toDevelop[0];
+  if (!task) return stepTestBatch(run, open.filter((t) => t.status === "testing"));
 
   const label = `T${task.idx + 1} · ${task.title}`;
 
@@ -315,26 +326,70 @@ async function stepWork(run: Run) {
       files: result.files.map((f) => f.path),
       ...usageNote(usage),
     });
-    await setAgents(run.id, {
-      developer: { state: "waiting", detail: `Entregado ${label}, esperando a Testing` },
-      tester: { state: "working", detail: `Probando ${label}` },
-    });
+    const left = toDevelop.length - 1;
+    await setAgents(
+      run.id,
+      left > 0
+        ? {
+            developer: { state: "working", detail: `Entregado ${label}; quedan ${left} por hacer` },
+            tester: { state: "waiting", detail: "Probará todas las tareas juntas cuando Develop termine" },
+          }
+        : {
+            developer: { state: "waiting", detail: "Todo entregado, esperando a Testing" },
+            tester: { state: "working", detail: "Probando todas las tareas entregadas a la vez" },
+          },
+    );
     return;
   }
+}
 
-  // 3) Testing comprueba
-  if (task.status === "testing") {
-    await log(run.id, task.id, "tester", "thinking", "Escribiendo y ejecutando las pruebas…");
-    const files = await loadFiles(run.id);
-    const { checks: proposed, review, usage } = await test(task, files);
+const DEV_STATUSES: Task["status"][] = ["pending", "developing", "changes_requested"];
+
+/**
+ * 3) Testing prueba de una vez todas las tareas entregadas, con UNA llamada a la IA para todas.
+ * Si una tarea ya tiene sus checks escritos y en la ronda anterior la revisión estaba aprobada (solo
+ * fallaban checks), se vuelve a probar sin IA: los checks se ejecutan con Cheerio y la revisión se mantiene.
+ */
+async function stepTestBatch(run: Run, batch: Task[]) {
+  const files = await loadFiles(run.id);
+  const tags = batch.map((t) => `T${t.idx + 1}`).join(", ");
+  const needsAi = batch.filter((t) => !(t.checks?.length && t.last_report?.review.approved));
+  await log(
+    run.id,
+    null,
+    "tester",
+    "thinking",
+    needsAi.length
+      ? `Escribiendo y ejecutando las pruebas de ${tags}${batch.length > 1 ? " (todas en una sola llamada)" : ""}…`
+      : `Repitiendo las pruebas de ${tags} sin llamar a la IA (ya están escritas y la revisión estaba aprobada)…`,
+  );
+  const { results: aiResults, usage } = needsAi.length
+    ? await test(needsAi, files)
+    : { results: new Map<number, TaskTest>(), usage: null };
+  if (needsAi.length && aiResults.size === 0) throw new Error("Testing no devolvió el resultado de ninguna tarea");
+
+  const failedTags: string[] = [];
+  let firstAi = true;
+  for (const task of batch) {
+    const byAi = needsAi.includes(task);
+    const got = aiResults.get(task.idx);
+    if (byAi && !got) {
+      // La IA se dejó esta tarea: sigue en testing y entra en el siguiente lote.
+      await log(run.id, task.id, "tester", "note", "Testing no devolvió resultado de esta tarea; se vuelve a probar.");
+      continue;
+    }
+    const review = got?.review ?? task.last_report!.review;
     // Las de Testing se congelan tras la primera ronda; la de enlaces rotos se recalcula siempre.
-    const base = task.checks?.length ? task.checks : mergeChecks(contactDemoChecks(task), proposed);
+    const base = task.checks?.length ? task.checks : mergeChecks(contactDemoChecks(task), got?.checks ?? []);
     const checks = mergeChecks(base, siteLinkChecks(files));
     const results = runChecks(checks, files);
     const attempt = task.attempts + 1;
     const passed = results.every((r) => r.passed) && review.approved;
     const report: TestReport = { passed, checks: results, review, attempt };
     const failed = results.filter((r) => !r.passed).length;
+    // Qué IA respondió; «shared» marca las tareas que comparten la misma llamada (para contar llamadas).
+    const aiNote = byAi ? { ...usageNote(usage), ...(firstAi ? {} : { shared: true }) } : { sinIA: true };
+    if (byAi) firstAi = false;
     const [delivery] = await q<{ message: string; data: { files?: string[]; usage?: unknown } | null }>(
       `SELECT message, data FROM events WHERE task_id = $1 AND type = 'code' ORDER BY id DESC LIMIT 1`,
       [task.id],
@@ -344,67 +399,73 @@ async function stepWork(run: Run) {
       dev_summary: delivery?.message ?? "",
       files: delivery?.data?.files ?? [],
       dev_model: modelInfo(delivery?.data?.usage),
-      test_model: modelInfo(usage),
+      test_model: byAi ? modelInfo(usage) : null,
       at: new Date().toISOString(),
     };
     await q(`UPDATE tasks SET history = history || $2::jsonb WHERE id = $1`, [task.id, JSON.stringify([entry])]);
+    const how = byAi ? "" : " (repetidas sin IA)";
 
     if (passed) {
       await setTask(task.id, { status: "passed", attempts: attempt, checks, last_report: report });
-      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada`, {
+      await log(run.id, task.id, "tester", "pass", `✅ ${results.length}/${results.length} pruebas OK y revisión aprobada${how}`, {
         report,
-        ...usageNote(usage),
+        ...aiNote,
       });
-      await setAgents(run.id, {
-        tester: { state: "idle", detail: `${label} superada` },
-        developer: { state: "idle", detail: "Esperando la siguiente tarea" },
-      });
-    } else {
-      const blocked = attempt >= MAX_ATTEMPTS;
-      await setTask(task.id, {
-        status: blocked ? "blocked" : "changes_requested",
-        attempts: attempt,
-        checks,
-        last_report: report,
-      });
-      const issues = [
-        failed ? `${failed} prueba(s) fallan` : null,
-        review.approved ? null : `${review.issues.length} problema(s) en la revisión`,
-      ]
-        .filter(Boolean)
-        .join(" y ");
-      await log(
-        run.id,
-        task.id,
-        "tester",
-        "fail",
-        blocked
-          ? `❌ ${issues}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.`
-          : `❌ ${issues}. Devuelvo la tarea a Develop.`,
-        { report, ...usageNote(usage) },
-      );
-      await setAgents(run.id, {
-        tester: { state: blocked ? "idle" : "waiting", detail: blocked ? `${label} bloqueada` : `Fallos reportados en ${label}` },
-        developer: blocked
-          ? { state: "idle", detail: "Esperando la siguiente tarea" }
-          : { state: "working", detail: `Debe corregir ${label}` },
-      });
-      if (blocked) {
-        await log(run.id, task.id, "orchestrator", "escalate", `«${task.title}» queda bloqueada; continúo con el resto.`);
-      }
+      continue;
+    }
+    const blocked = attempt >= MAX_ATTEMPTS;
+    await setTask(task.id, { status: blocked ? "blocked" : "changes_requested", attempts: attempt, checks, last_report: report });
+    if (!blocked) failedTags.push(`T${task.idx + 1}`);
+    const issues = [
+      failed ? `${failed} prueba(s) fallan` : null,
+      review.approved ? null : `${review.issues.length} problema(s) en la revisión`,
+    ]
+      .filter(Boolean)
+      .join(" y ");
+    await log(
+      run.id,
+      task.id,
+      "tester",
+      "fail",
+      blocked
+        ? `❌ ${issues}${how}. Se agotaron los ${MAX_ATTEMPTS} intentos: tarea bloqueada.`
+        : `❌ ${issues}${how}. Devuelvo la tarea a Develop.`,
+      { report, ...aiNote },
+    );
+    if (blocked) {
+      await log(run.id, task.id, "orchestrator", "escalate", `«${task.title}» queda bloqueada; continúo con el resto.`);
     }
   }
+
+  await setAgents(
+    run.id,
+    failedTags.length
+      ? {
+          tester: { state: "waiting", detail: `Fallos en ${failedTags.join(", ")}: vuelven a Develop` },
+          developer: { state: "working", detail: `Debe corregir ${failedTags.join(", ")}` },
+        }
+      : {
+          tester: { state: "idle", detail: `Probadas ${tags}` },
+          developer: { state: "idle", detail: "Sin tareas pendientes" },
+        },
+  );
 }
 
 async function finish(run: Run, tasks: Task[]) {
   const passed = tasks.filter((t) => t.status === "passed").length;
   const blocked = tasks.length - passed;
   const status = blocked === 0 ? "done" : "done_with_errors";
-  const totalAttempts = tasks.reduce((n, t) => n + t.attempts, 0);
+  // Respuestas de la IA usadas (las tareas probadas en el mismo lote comparten una sola llamada).
+  const [{ calls }] = await q<{ calls: number }>(
+    `SELECT COUNT(*)::int AS calls FROM events
+      WHERE run_id = $1 AND jsonb_typeof(data->'usage') = 'object' AND data->'shared' IS NULL`,
+    [run.id],
+  );
+  const callsNote = calls > 0 ? ` (${calls} llamadas a la IA)` : "";
   const summary =
     blocked === 0
-      ? `Petición completada: ${passed}/${tasks.length} tareas superadas en ${totalAttempts} rondas de testing.`
-      : `Terminado con incidencias: ${passed}/${tasks.length} tareas superadas, ${blocked} bloqueadas.`;
+      ? `Petición completada: ${passed}/${tasks.length} tareas superadas${callsNote}.`
+      : `Terminado con incidencias: ${passed}/${tasks.length} tareas superadas, ${blocked} bloqueadas${callsNote}.`;
   await q(`UPDATE runs SET status = $2, summary = $3 WHERE id = $1`, [run.id, status, summary]);
   await log(run.id, null, "orchestrator", "done", summary);
   await setAgents(run.id, {

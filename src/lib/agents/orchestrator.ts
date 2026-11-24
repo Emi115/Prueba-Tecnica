@@ -15,7 +15,9 @@ export const PlanSchema = z.object({
           .describe("Criterios de aceptación verificables mirando el HTML/CSS resultante"),
       }),
     )
-    .describe("Entre 1 y 5 tareas, ordenadas, cada una independiente y comprobable"),
+    .describe(
+      "Entre 1 y 3 tareas, ordenadas y comprobables. Una tarea por CAMBIO, no por fichero: el mismo cambio en varias páginas es una sola tarea",
+    ),
 });
 export type Plan = z.infer<typeof PlanSchema>;
 
@@ -23,7 +25,10 @@ const SYSTEM = `Eres el agente ORQUESTADOR de un equipo de tres agentes (Orquest
 
 Tu trabajo: recibir la petición del usuario, entender la web actual y dividir el trabajo en tareas pequeñas para Develop.
 Reglas:
-- Entre 1 y 5 tareas. Cada tarea debe poder hacerse y comprobarse sola, en orden.
+- Pocas tareas: entre 1 y 3. Cada tarea cuesta llamadas a la IA, así que agrupa por CAMBIO, no por fichero.
+  Ejemplo: «añadir categorías al pie» en index.html y en nosotros.html es UNA tarea que nombra los dos ficheros, no dos.
+  Separa solo cambios de naturaleza distinta (p. ej. contenido del pie / colores del pie en styles.css). Una petición sencilla = 1 tarea.
+- Cada tarea debe poder hacerse y comprobarse sola, en orden.
 - Nombra los ficheros exactos que hay que crear o tocar (rutas relativas, p. ej. "contacto.html").
 - Los criterios de aceptación deben ser comprobables leyendo el HTML/CSS: ficheros que existen, textos visibles, elementos (form, input[type=email]...), enlaces entre páginas. Nada subjetivo.
 - Mantén el estilo y la estructura de la web existente (misma cabecera, navegación, pie y styles.css).
@@ -40,7 +45,7 @@ export async function planTasks(
     system: SYSTEM,
     prompt: `Petición del usuario:\n"""${request}"""\n\nFicheros actuales de la web:\n${fileTree(files, true)}`,
   });
-  return { plan: { ...data, tasks: data.tasks.slice(0, 5) }, usage };
+  return { plan: { ...data, tasks: data.tasks.slice(0, 4) }, usage };
 }
 
 function mockPlan(request: string): Plan {
