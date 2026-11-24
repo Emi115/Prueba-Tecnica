@@ -132,6 +132,8 @@ interface RunRow {
   created_at: string;
   total: number;
   passed: number;
+  /** Llamadas reales a la IA (0 en modo simulado). */
+  ai_calls: number;
 }
 
 export default function Home() {
@@ -245,27 +247,46 @@ export default function Home() {
           {runs === null && <li className="p-4 text-sm text-subtle">Cargando…</li>}
           {runs?.length === 0 && <li className="p-4 text-sm text-subtle">Aún no hay peticiones.</li>}
           {runs?.map((r) => (
-            <li key={r.id} className="flex items-center hover:bg-surface-2">
-              <Link href={`/runs/${r.id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4">
-                <span className="min-w-0 flex-1 truncate">{r.request}</span>
-                <span className="font-mono text-xs text-subtle">
+            <li key={r.id} className="group relative flex items-center hover:bg-surface-2">
+              {/*
+                En móvil la petición ocupa la primera línea (dejando hueco a la derecha para «Ver web» y eliminar,
+                que pasan a la esquina superior) y los datos van debajo usando todo el ancho de la fila.
+              */}
+              <Link
+                href={`/runs/${r.id}`}
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 p-4 sm:flex-nowrap"
+              >
+                <span className="min-w-0 flex-1 truncate max-sm:basis-full max-sm:pr-28">{r.request}</span>
+                <span className="whitespace-nowrap font-mono text-xs text-subtle">
                   {r.passed}/{r.total}
                 </span>
-                <span className={`rounded-full px-2 py-0.5 text-xs ${RUN_STATUS[r.status].cls}`}>
+                {r.ai_calls > 0 && (
+                  <span className="whitespace-nowrap text-xs text-subtle" title="Llamadas a la IA que gastó esta petición">
+                    {r.ai_calls} {r.ai_calls === 1 ? "llamada" : "llamadas"}
+                    <span className="sr-only"> a la IA</span>
+                  </span>
+                )}
+                <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${RUN_STATUS[r.status].cls}`}>
                   {RUN_STATUS[r.status].label}
                 </span>
               </Link>
-              <a
-                href={`/preview/${r.id}/index.html`}
-                target="_blank"
-                rel="noopener"
-                title="Ver la web resultante a pantalla completa"
-                className="shrink-0 py-4 pr-4 text-xs text-muted hover:text-fg"
-              >
-                Ver web ↗
-              </a>
-              {/* Botón de eliminar por petición (componente DeleteRunButton, más abajo) */}
-              <DeleteRunButton id={r.id} onDeleted={() => setRuns((rs) => rs?.filter((x) => x.id !== r.id) ?? rs)} />
+              {/*
+                En móvil: 32 px de alto desde top-3, centrado con la primera línea y sin pisar la segunda.
+                El fondo hace que, si el botón de eliminar se ensancha («¿Eliminar?»), tape el texto en vez de solaparse.
+              */}
+              <div className="flex shrink-0 items-center max-sm:absolute max-sm:right-0 max-sm:top-3 max-sm:bg-surface max-sm:pl-2 max-sm:group-hover:bg-surface-2">
+                <a
+                  href={`/preview/${r.id}/index.html`}
+                  target="_blank"
+                  rel="noopener"
+                  title="Ver la web resultante a pantalla completa"
+                  className="shrink-0 py-4 pr-4 text-xs text-muted hover:text-fg max-sm:py-2"
+                >
+                  Ver web ↗
+                </a>
+                {/* Botón de eliminar por petición (componente DeleteRunButton, más abajo) */}
+                <DeleteRunButton id={r.id} onDeleted={() => setRuns((rs) => rs?.filter((x) => x.id !== r.id) ?? rs)} />
+              </div>
             </li>
           ))}
         </ul>

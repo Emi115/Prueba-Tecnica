@@ -47,11 +47,22 @@ export async function deleteRun(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * Condición SQL (sobre la tabla `events`) que identifica una llamada real a la IA: el evento guarda
+ * su `usage` como objeto (en modo simulado es el texto "simulado") y no es una tarea que comparte
+ * la llamada de otra del mismo lote (`shared`). Única definición para `finish()` y `listRuns()`.
+ */
+const AI_CALL_EVENT_SQL = `jsonb_typeof(data->'usage') = 'object' AND data->'shared' IS NULL`;
+
 export async function listRuns() {
-  return q<Pick<Run, "id" | "request" | "status" | "created_at" | "ai"> & { total: number; passed: number }>(
+  // ai_calls va en subconsulta para no multiplicar las filas de tasks (y así no alterar total/passed).
+  return q<
+    Pick<Run, "id" | "request" | "status" | "created_at" | "ai"> & { total: number; passed: number; ai_calls: number }
+  >(
     `SELECT r.id, r.request, r.status, r.created_at, r.ai,
             COUNT(t.id)::int AS total,
-            COUNT(t.id) FILTER (WHERE t.status = 'passed')::int AS passed
+            COUNT(t.id) FILTER (WHERE t.status = 'passed')::int AS passed,
+            (SELECT COUNT(*)::int FROM events WHERE events.run_id = r.id AND ${AI_CALL_EVENT_SQL}) AS ai_calls
        FROM runs r LEFT JOIN tasks t ON t.run_id = r.id
       GROUP BY r.id ORDER BY r.created_at DESC LIMIT 30`,
   );
@@ -457,11 +468,10 @@ async function finish(run: Run, tasks: Task[]) {
   const status = blocked === 0 ? "done" : "done_with_errors";
   // Respuestas de la IA usadas (las tareas probadas en el mismo lote comparten una sola llamada).
   const [{ calls }] = await q<{ calls: number }>(
-    `SELECT COUNT(*)::int AS calls FROM events
-      WHERE run_id = $1 AND jsonb_typeof(data->'usage') = 'object' AND data->'shared' IS NULL`,
+    `SELECT COUNT(*)::int AS calls FROM events WHERE run_id = $1 AND ${AI_CALL_EVENT_SQL}`,
     [run.id],
   );
-  const callsNote = calls > 0 ? ` (${calls} llamadas a la IA)` : "";
+  const callsNote = calls > 0 ? ` (${calls} ${calls === 1 ? "llamada" : "llamadas"} a la IA)` : "";
   const summary =
     blocked === 0
       ? `Petición completada: ${passed}/${tasks.length} tareas superadas${callsNote}.`
