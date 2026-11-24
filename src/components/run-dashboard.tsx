@@ -13,7 +13,7 @@ interface RunData {
   tasks: Task[];
   events: AgentEvent[];
   files: SiteFile[];
-  meta: { mock: boolean; ai?: AiChoice; model: string; fallbacks: string[]; localDb: boolean };
+  meta: { mock: boolean; ai?: AiChoice; aiGone?: boolean; model: string; fallbacks: string[]; localDb: boolean };
 }
 
 const COLUMNS: { title: string; statuses: TaskStatus[] }[] = [
@@ -111,9 +111,13 @@ export function RunDashboard({ id }: { id: string }) {
           {!meta.mock && meta.ai && meta.ai !== "auto" && (
             <span
               className="rounded-full border border-line px-2.5 py-1 text-subtle"
-              title="IA elegida al crear la petición: se usa solo esta, sin pasar a otras si falla"
+              title={
+                meta.aiGone
+                  ? "IA elegida al crear la petición; ya no está disponible en este servidor"
+                  : "IA elegida al crear la petición: se usa solo esta, sin pasar a otras si falla"
+              }
             >
-              elegida a mano · sin respaldo
+              {meta.aiGone ? "elegida a mano · ya no disponible" : "elegida a mano · sin respaldo"}
             </span>
           )}
           {!meta.mock && meta.fallbacks?.length > 0 && (

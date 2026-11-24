@@ -21,7 +21,14 @@ const AI_DOT: Record<AiChoice, string> = {
   openrouter: "bg-indigo-500",
 };
 
-const shortModel = (m: string) => m.split(":").pop()!.split("/").pop()!.replace(/^gemini-/, "");
+/** «openrouter:nvidia/nemotron-3.5-super-vl:free» → «nemotron-3.5-super-vl» (quita proveedor, empresa y «:free»). */
+const shortModel = (m: string) =>
+  m
+    .replace(/^[a-z]+:/, "")
+    .split("/")
+    .pop()!
+    .replace(/:free$/, "")
+    .replace(/^gemini-/, "");
 
 /**
  * Eliminar una petición en dos pasos: el primer clic pide confirmación («¿Eliminar?») y el segundo borra.
