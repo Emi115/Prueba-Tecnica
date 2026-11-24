@@ -30,6 +30,10 @@ Petición ──► ORQUESTADOR ──► tareas (con criterios de aceptación)
 Los checks se fijan en la primera ronda y se reutilizan en las siguientes, para que el listón no cambie mientras
 Develop corrige. Tras 3 rondas fallidas la tarea queda **bloqueada** y el Orquestador sigue con el resto.
 
+Además, en cada ronda se añade un `no_broken_links` (marcado `[web]`) para **todas** las páginas HTML que existan
+en ese momento: ninguna puede enlazar a una página o fichero que no exista (p. ej. un botón a `noticias.html` sin
+haber creado esa página). Se recalcula en cada ronda para cubrir también las páginas nuevas.
+
 ### Demo «página de contacto»: Testing con Cheerio
 
 Si la tarea habla de la página de contacto, Testing añade siempre unas comprobaciones fijas (marcadas `[demo]`)

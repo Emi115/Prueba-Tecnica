@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { q } from "./db";
 import { BASE_SITE } from "./base-site";
-import { contactDemoChecks, mergeChecks, runChecks } from "./checks";
+import { contactDemoChecks, mergeChecks, runChecks, siteLinkChecks } from "./checks";
 import { planTasks } from "./agents/orchestrator";
 import { develop } from "./agents/developer";
 import { test } from "./agents/tester";
@@ -316,7 +316,9 @@ async function stepWork(run: Run) {
     await log(run.id, task.id, "tester", "thinking", "Escribiendo y ejecutando las pruebas…");
     const files = await loadFiles(run.id);
     const { checks: proposed, review, usage } = await test(task, files);
-    const checks = task.checks?.length ? task.checks : mergeChecks(contactDemoChecks(task), proposed);
+    // Las de Testing se congelan tras la primera ronda; la de enlaces rotos se recalcula siempre.
+    const base = task.checks?.length ? task.checks : mergeChecks(contactDemoChecks(task), proposed);
+    const checks = mergeChecks(base, siteLinkChecks(files));
     const results = runChecks(checks, files);
     const attempt = task.attempts + 1;
     const passed = results.every((r) => r.passed) && review.approved;

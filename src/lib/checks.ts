@@ -135,6 +135,24 @@ export function contactDemoChecks(task: { title: string; description: string; ac
   return checks;
 }
 
+/**
+ * Comprobación fija: ninguna página HTML de la web puede enlazar a un fichero que no existe
+ * (p. ej. un botón a noticias.html sin crear esa página). Se genera en cada ronda a partir de
+ * los ficheros actuales, para cubrir también las páginas que Develop cree más tarde.
+ */
+export function siteLinkChecks(files: Record<string, string>): Check[] {
+  return Object.keys(files)
+    .filter((f) => f.endsWith(".html"))
+    .sort()
+    .map((file) => ({
+      type: "no_broken_links" as const,
+      file,
+      selector: "",
+      value: "",
+      description: `[web] Sin enlaces a páginas o ficheros inexistentes en ${file}`,
+    }));
+}
+
 export function mergeChecks(a: Check[], b: Check[]): Check[] {
   const key = (x: Check) => [x.type, x.file, x.selector, x.value].join("|").toLowerCase();
   const seen = new Set(a.map(key));
