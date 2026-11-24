@@ -4,7 +4,65 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AGENTS, RUN_STATUS } from "@/components/ui";
-import type { AgentId, RunStatus } from "@/lib/types";
+import type { AgentId, AiChoice, RunStatus } from "@/lib/types";
+
+interface AiInfo {
+  mock: boolean;
+  /** Cadena automática, p. ej. ["gemini-3.1-flash-lite", "groq:openai/gpt-oss-120b", …]. */
+  auto: string[];
+  options: { id: Exclude<AiChoice, "auto">; name: string; model: string }[];
+}
+
+/** Mismos colores que las etiquetas de IA del panel. */
+const AI_DOT: Record<AiChoice, string> = {
+  auto: "bg-gradient-to-br from-sky-500 via-orange-500 to-rose-500",
+  gemini: "bg-sky-500",
+  groq: "bg-orange-500",
+  mistral: "bg-rose-500",
+};
+
+const shortModel = (m: string) => m.split(":").pop()!.split("/").pop()!.replace(/^gemini-/, "");
+
+function AiPicker({ value, onChange, info }: { value: AiChoice; onChange: (v: AiChoice) => void; info: AiInfo | null }) {
+  const options: { id: AiChoice; name: string }[] = [{ id: "auto", name: "Automático" }, ...(info?.options ?? [])];
+  const chosen = info?.options.find((o) => o.id === value);
+  const [first, ...rest] = (info?.auto ?? ["Gemini"]).map(shortModel);
+  const hint = chosen
+    ? `Solo ${chosen.name} (${shortModel(chosen.model)}), sin respaldo: si falla, se espera y se reintenta con la misma.`
+    : rest.length
+      ? `Empieza con ${first}; si falla, pasa a ${rest.join(" y luego a ")}.`
+      : `Usa ${first} (no hay IAs de respaldo configuradas).`;
+  return (
+    <fieldset className="mt-4">
+      <legend className="text-sm font-medium text-fg">IA</legend>
+      <div className="mt-2 inline-flex flex-wrap gap-1 rounded-xl border border-line bg-bg p-1" role="radiogroup">
+        {options.map((o) => (
+          <label
+            key={o.id}
+            className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-500/60 ${
+              value === o.id ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+            }`}
+          >
+            <input
+              type="radio"
+              name="ai"
+              value={o.id}
+              checked={value === o.id}
+              onChange={() => onChange(o.id)}
+              className="sr-only"
+            />
+            <span className={`h-2 w-2 rounded-full ${AI_DOT[o.id]}`} aria-hidden />
+            {o.name}
+          </label>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-subtle">
+        {hint}
+        {info?.mock && " (Ahora en modo simulado: los agentes no llaman a ninguna IA.)"}
+      </p>
+    </fieldset>
+  );
+}
 
 const EXAMPLES = [
   "Añade una página de contacto a esta web",
@@ -28,12 +86,18 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunRow[] | null>(null);
+  const [ai, setAi] = useState<AiChoice>("auto");
+  const [aiInfo, setAiInfo] = useState<AiInfo | null>(null);
 
   useEffect(() => {
     fetch("/api/runs")
       .then((r) => (r.ok ? r.json() : []))
       .then(setRuns)
       .catch(() => setRuns([]));
+    fetch("/api/ai")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setAiInfo)
+      .catch(() => setAiInfo(null));
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -43,7 +107,7 @@ export default function Home() {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ request }),
+      body: JSON.stringify({ request, ai }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -108,6 +172,7 @@ export default function Home() {
             </button>
           ))}
         </div>
+        <AiPicker value={ai} onChange={setAi} info={aiInfo} />
         <div className="mt-4 flex items-center justify-between gap-3">
           {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : <span />}
           <button

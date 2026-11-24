@@ -1,7 +1,9 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ApiError, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { apiMessage, finishReason, rateLimitReason, serverErrorReason } from "./llm-errors";
+import type { AiChoice } from "./types";
 
 /* ------------------------------------------------------------------
  * Cadena de modelos con respaldo
@@ -57,16 +59,34 @@ interface Slot {
  */
 const STEP_BUDGET_MS = 230_000;
 
-export function modelChain(): Slot[] {
+/**
+ * IA elegida para la petición en curso. El motor envuelve cada paso con `withAi`, así los tres
+ * agentes la respetan sin tener que pasarla de función en función.
+ */
+const aiContext = new AsyncLocalStorage<AiChoice>();
+export const withAi = <T>(choice: AiChoice, fn: () => Promise<T>) => aiContext.run(choice, fn);
+
+/** IAs que se pueden elegir ahora mismo (Gemini siempre; Groq y Mistral solo si tienen clave). */
+export function availableAis(): { id: Exclude<AiChoice, "auto">; name: string; model: string }[] {
+  return [
+    { id: "gemini" as const, name: "Gemini", model: MODEL },
+    ...(groqKey() ? [{ id: "groq" as const, name: "Groq", model: GROQ_MODEL }] : []),
+    ...(mistralKey() ? [{ id: "mistral" as const, name: "Mistral", model: MISTRAL_MODEL }] : []),
+  ];
+}
+
+export function modelChain(choice: AiChoice = aiContext.getStore() ?? "auto"): Slot[] {
   const chain: Slot[] = [{ provider: "gemini", model: MODEL, timeoutMs: 50_000, attempts: 2 }];
   if (groqKey()) chain.push({ provider: "groq", model: GROQ_MODEL, timeoutMs: 35_000, attempts: 1 });
   if (mistralKey()) chain.push({ provider: "mistral", model: MISTRAL_MODEL, timeoutMs: 35_000, attempts: 1 });
-  return chain;
+  // IA elegida a mano: solo esa, sin respaldo y con más margen de tiempo. Si ya no tiene clave, automático.
+  const only = chain.find((s) => s.provider === choice);
+  return only ? [{ ...only, timeoutMs: 50_000 }] : chain;
 }
 
 /** Nombres de los modelos de la cadena, para mostrarlos en el panel (sin claves). */
-export const modelNames = () =>
-  modelChain().map((s) => (s.provider === "gemini" ? s.model : `${s.provider}:${s.model}`));
+export const modelNames = (choice?: AiChoice) =>
+  modelChain(choice).map((s) => (s.provider === "gemini" ? s.model : `${s.provider}:${s.model}`));
 
 /** Todos los modelos devolvieron 429 (cuota o límite de peticiones agotado). */
 export class RateLimitError extends Error {

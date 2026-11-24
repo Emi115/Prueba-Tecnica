@@ -54,10 +54,15 @@ export interface Attempt extends TestReport {
   test_model?: ModelInfo | null;
 }
 
+/** IA elegida al crear la petición: «auto» usa la cadena con respaldo; las demás, solo esa IA. */
+export type AiChoice = "auto" | "gemini" | "groq" | "mistral";
+export const AI_CHOICES: AiChoice[] = ["auto", "gemini", "groq", "mistral"];
+
 export interface Run {
   id: string;
   request: string;
   status: RunStatus;
+  ai: AiChoice;
   summary: string | null;
   agents: Record<AgentId, AgentStatus>;
   locked_until: string | null;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentEvent, AgentId, ModelInfo, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
+import type { AgentEvent, AgentId, AiChoice, ModelInfo, Run, SiteFile, Task, TaskStatus } from "@/lib/types";
 import { MAX_ATTEMPTS } from "@/lib/types";
 import { BASE_SITE } from "@/lib/base-site";
 import { splitSkipped } from "@/lib/llm-errors";
@@ -13,7 +13,7 @@ interface RunData {
   tasks: Task[];
   events: AgentEvent[];
   files: SiteFile[];
-  meta: { mock: boolean; model: string; fallbacks: string[]; localDb: boolean };
+  meta: { mock: boolean; ai?: AiChoice; model: string; fallbacks: string[]; localDb: boolean };
 }
 
 const COLUMNS: { title: string; statuses: TaskStatus[] }[] = [
@@ -108,6 +108,14 @@ export function RunDashboard({ id }: { id: string }) {
           <span className="rounded-full border border-line px-2.5 py-1 font-mono text-muted">
             {meta.mock ? "modo simulado" : meta.model}
           </span>
+          {!meta.mock && meta.ai && meta.ai !== "auto" && (
+            <span
+              className="rounded-full border border-line px-2.5 py-1 text-subtle"
+              title="IA elegida al crear la petición: se usa solo esta, sin pasar a otras si falla"
+            >
+              elegida a mano · sin respaldo
+            </span>
+          )}
           {!meta.mock && meta.fallbacks?.length > 0 && (
             <span
               className="max-w-full truncate rounded-full border border-line px-2.5 py-1 font-mono text-subtle"

@@ -59,6 +59,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tasks_run_idx ON tasks(run_id, idx)`,
   // Historial de intentos (Develop entrega → Testing evalúa), uno por ronda.
   `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  // IA elegida al crear la petición ('auto' = cadena con respaldo). Las peticiones antiguas quedan en 'auto'.
+  `ALTER TABLE runs ADD COLUMN IF NOT EXISTS ai TEXT NOT NULL DEFAULT 'auto'`,
   `CREATE TABLE IF NOT EXISTS files (
      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
      path TEXT NOT NULL,

@@ -6,7 +6,7 @@ import { contactDemoChecks, mergeChecks, runChecks, siteLinkChecks } from "./che
 import { planTasks } from "./agents/orchestrator";
 import { develop } from "./agents/developer";
 import { test } from "./agents/tester";
-import { ConfigError, GeminiBusyError, RateLimitError, type LlmUsage } from "./llm";
+import { ConfigError, GeminiBusyError, RateLimitError, withAi, type LlmUsage } from "./llm";
 import {
   BUSY_WAIT_MS,
   MAX_ATTEMPTS,
@@ -18,6 +18,7 @@ import {
   type AgentEvent,
   type AgentId,
   type AgentStatus,
+  type AiChoice,
   type Run,
   type SiteFile,
   type Task,
@@ -38,8 +39,8 @@ export async function getRun(id: string) {
 }
 
 export async function listRuns() {
-  return q<Pick<Run, "id" | "request" | "status" | "created_at"> & { total: number; passed: number }>(
-    `SELECT r.id, r.request, r.status, r.created_at,
+  return q<Pick<Run, "id" | "request" | "status" | "created_at" | "ai"> & { total: number; passed: number }>(
+    `SELECT r.id, r.request, r.status, r.created_at, r.ai,
             COUNT(t.id)::int AS total,
             COUNT(t.id) FILTER (WHERE t.status = 'passed')::int AS passed
        FROM runs r LEFT JOIN tasks t ON t.run_id = r.id
@@ -62,12 +63,13 @@ const IDLE: Record<AgentId, AgentStatus> = {
   tester: { state: "idle", detail: "Esperando trabajo que revisar" },
 };
 
-export async function createRun(request: string) {
+export async function createRun(request: string, ai: AiChoice = "auto") {
   const id = randomUUID();
-  await q(`INSERT INTO runs (id, request, status, agents) VALUES ($1, $2, 'planning', $3)`, [
+  await q(`INSERT INTO runs (id, request, status, agents, ai) VALUES ($1, $2, 'planning', $3, $4)`, [
     id,
     request,
     JSON.stringify(IDLE),
+    ai,
   ]);
   for (const [path, content] of Object.entries(BASE_SITE)) {
     await q(`INSERT INTO files (run_id, path, content) VALUES ($1, $2, $3)`, [id, path, content]);
@@ -147,8 +149,8 @@ export async function step(runId: string): Promise<StepResult> {
   // ninguna pestaña (ni varias a la vez) reintente antes de tiempo.
   let holdMs = 0;
   try {
-    if (locked.status === "planning") await stepPlan(locked);
-    else await stepWork(locked);
+    // Todas las llamadas a la IA de este paso usan la IA elegida en la petición.
+    await withAi(locked.ai ?? "auto", () => (locked.status === "planning" ? stepPlan(locked) : stepWork(locked)));
   } catch (err) {
     // 429 (cuota) y 5xx/timeouts (todas las IAs de la cadena saturadas) son temporales: no cuentan como error de código.
     // Reintentos limitados, con espera entre ellos, y mensaje claro en el panel.

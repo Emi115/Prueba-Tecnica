@@ -58,6 +58,9 @@ el panel la muestra como «Intentos #1, #2…» al pulsar la tarea.
      `MISTRAL_API_KEY` (https://console.mistral.ai/api-keys). Misma API compatible con OpenAI y la misma función
      que Groq. Otra empresa y otra infraestructura: es poco probable que falle a la vez que Google y Groq.
 
+  **Elegir la IA.** En la portada, «IA: Automático · Gemini · Groq · Mistral» (solo aparecen las que tienen clave).
+  Automático usa esta cadena; si eliges una, la petición usa solo esa IA, sin respaldo (columna `runs.ai`).
+
   Cada mensaje del panel lleva una etiqueta con la IA que respondió (azul Gemini, naranja Groq, rosa Mistral, y «respaldo»
   si el principal falló; al pasar el ratón se ve qué falló). También en cada agente y en cada intento. La cabecera
   muestra la cadena configurada. Una clave inválida **no** pasa al siguiente: detiene la ejecución con un mensaje claro.
